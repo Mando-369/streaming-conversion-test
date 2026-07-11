@@ -34,6 +34,12 @@ Loudness targets are publicly-reported, approximate, and change over time:
 Each unique codec/bitrate is transcoded **once** per file, then reused across every
 service that serves it.
 
+> **Apple Music uses Apple's own AAC encoder.** On **macOS** this tool encodes the
+> Apple Music tier with the real thing — ffmpeg's AudioToolbox `aac_at`, or the
+> built-in `/usr/bin/afconvert` — so that row is high-fidelity, not a proxy. On
+> Windows/Linux it falls back to ffmpeg's generic AAC. Every result shows which
+> encoder actually ran.
+
 ---
 
 ## What it measures (and the spec it references)
@@ -141,8 +147,8 @@ python3 spotify_conversion_test_app.py --help
   Spotify          -14 LUFS  → plays ~-14.00 LUFS (gain -13.75 dB, down)   [FAIL]
      Ogg Vorbis 96k        dec    0.36 over   +0.44 play  -13.39   FAIL
      ...
-  Apple Music      -16 LUFS  → plays ~-16.00 LUFS (gain -15.75 dB, down)   [WARN]
-     AAC 256k              dec   -0.00 over   +0.08 play  -15.75   WARN
+  Apple Music      -16 LUFS  → plays ~-16.00 LUFS (gain -15.75 dB, down)   [FAIL]
+     AAC 256k              dec    0.04 over   +0.12 play  -15.71   FAIL  · Apple aac_at
      ALAC (lossless)       dec   -0.08 over   +0.00 play  -15.83   WARN
 ```
 
@@ -165,8 +171,9 @@ if you're hotter than −14 LUFS) and re-test.
 | Loudness / normalization math (LUFS, gain, "plays at") | 🟢 High — deterministic BS.1770 |
 | Overshoot direction & clipping flags | 🟢 High — a real encode→decode round-trip |
 | Relative comparisons (codec vs codec, master vs master, lossless = clean) | 🟢 High |
+| **Apple Music on macOS** | 🟢 High — uses Apple's real AAC encoder (`aac_at` / `afconvert`) |
+| Apple Music on Windows/Linux | 🟠 Proxy — ffmpeg's generic AAC |
 | Absolute overshoot magnitude per service | 🟠 Medium — ±~0.3 dB |
-| Apple Music specifically | 🟠 Lower — Apple uses its own AAC encoder |
 | Service parameters (targets, bitrates) | 🟠 Medium — approximate, change over time |
 
 Use it as a **relative pre-delivery check** — "does my master have enough
@@ -176,13 +183,20 @@ prediction of any one service's encoder. It does **not** model encoder
 quality/VBR settings, service-side pre-processing, sample-rate conversion, or
 perceptual quality — and it's never a substitute for critical listening.
 
+This same reliability sheet is printed at the top of every HTML report and
+summarised in the command-line output, so anyone reading a result knows exactly
+how much to trust it.
+
 ---
 
 ## Free tools it builds on
 
 - **ffmpeg** — `libvorbis`, native `aac`, `libopus`, `libmp3lame` encoders for the
-  real round-trips; `loudnorm` (ITU-R BS.1770 integrated loudness + 4× oversampled
-  true peak) and `astats` (sample peak) for measurement.
+  real round-trips (plus Apple's `aac_at` / AudioToolbox on macOS); `loudnorm`
+  (ITU-R BS.1770 integrated loudness + 4× oversampled true peak) and `astats`
+  (sample peak) for measurement.
+- **macOS AudioToolbox / `afconvert`** — Apple's real AAC encoder for the Apple
+  Music tier, on macOS only.
 - **Python standard library** (incl. `tkinter`) for the app and report.
 - **imageio-ffmpeg** / **tkinterdnd2** — optional, auto-installed on demand for the
   bundled ffmpeg and true drag-and-drop.
@@ -192,8 +206,10 @@ perceptual quality — and it's never a substitute for critical listening.
 ## Notes & limitations
 
 - ffmpeg's encoders are excellent references but are not byte-identical to each
-  service's internal encoder builds (notably Apple's AAC); treat overshoot figures
-  as a faithful, conservative simulation.
+  service's internal encoder builds; treat overshoot figures as a faithful,
+  conservative simulation. On macOS the **Apple Music** tier uses Apple's real AAC
+  encoder (AudioToolbox `aac_at`, or `afconvert`); elsewhere it falls back to
+  ffmpeg's AAC as a proxy, and each report row shows which encoder ran.
 - Lossless tiers (FLAC/ALAC) round-trip bit-exactly, so they add no overshoot; the
   tool reports them as such rather than re-encoding.
 - Normalization is applied at **playback** — your uploaded file is never altered —

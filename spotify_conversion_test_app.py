@@ -53,16 +53,19 @@ and can be removed at any time (see --where).
 Important accuracy notes
 ------------------------
   * ffmpeg's encoders are excellent references but are NOT byte-identical to
-    each service's internal encoder builds.  In particular Apple Music encodes
-    AAC with Apple's own encoder; ffmpeg's AAC is a close proxy, not identical.
-    Treat overshoot figures as a faithful, conservative simulation.
+    each service's internal encoder builds.  Treat overshoot figures as a
+    faithful, conservative simulation.
+  * Apple Music encodes AAC with Apple's OWN encoder.  On macOS this tool uses
+    the real thing (ffmpeg's AudioToolbox `aac_at`, or `/usr/bin/afconvert`) for
+    the Apple Music tier; on Windows/Linux it falls back to ffmpeg's generic AAC
+    as a proxy.  Each report/row shows which encoder actually ran.
   * Lossless tiers (FLAC/ALAC) round-trip bit-exactly, so they add no overshoot;
     the tool reports them as such rather than re-encoding them.
   * Normalization is applied by services at PLAYBACK — your uploaded file is
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 import argparse
 import datetime
@@ -183,6 +186,12 @@ class TranscodeSpec:
         self.ext = ext
 
 
+# Apple Music uses its own AAC encoder.  On macOS we route this one tier through
+# the real thing (ffmpeg's AudioToolbox `aac_at`, or `afconvert`), falling back
+# to ffmpeg's generic AAC off macOS.  It is a distinct transcode from the generic
+# `aac_256` the other services use.
+APPLE_AAC_KEY = "aac_256_apple"
+
 # The union of lossy codec tiers used by any service.  Each is transcoded ONCE
 # per file; services then reference these results by key.
 TRANSCODES = [
@@ -196,6 +205,8 @@ TRANSCODES = [
     TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus"),
     TranscodeSpec("mp3_128",    "MP3 128k",        "libmp3lame",  "128k", "mp3"),
     TranscodeSpec("mp3_320",    "MP3 320k",        "libmp3lame",  "320k", "mp3"),
+    # Apple Music tier — encoder resolved at runtime (aac_at / afconvert / aac).
+    TranscodeSpec("aac_256_apple", "AAC 256k",     "aac_at",      "256k", "m4a"),
 ]
 TRANSCODE_BY_KEY = {t.key: t for t in TRANSCODES}
 
@@ -235,9 +246,10 @@ SERVICES = [
         ("aac_256",    "Web player / Google Cast (premium)"),
     ]),
     Service("apple", "Apple Music", -16.0, -1.0, -1.0, [
-        ("aac_256", "AAC 256 VBR (standard)"),
-        ("alac",    "Lossless / Hi-Res Lossless (ALAC)"),
-    ], note="Apple encodes AAC with its own encoder; ffmpeg's AAC is a close proxy, not identical."),
+        ("aac_256_apple", "AAC 256 VBR (standard)"),
+        ("alac",          "Lossless / Hi-Res Lossless (ALAC)"),
+    ], note="On macOS this uses Apple's real AAC encoder (AudioToolbox / afconvert); "
+            "on Windows/Linux it falls back to ffmpeg's AAC as a proxy."),
     Service("youtube", "YouTube Music", -14.0, -1.0, -1.0, [
         ("opus_128", "Opus (typical)"),
         ("opus_160", "Opus (high)"),
@@ -270,8 +282,11 @@ for _svc in SERVICES:
         if _tkey not in LOSSLESS and _tkey not in USED_TRANSCODE_KEYS:
             USED_TRANSCODE_KEYS.append(_tkey)
 
-# Encoders we need (to grade an ffmpeg build and to skip codecs cleanly).
-REQUIRED_ENCODERS = tuple(dict.fromkeys(TRANSCODE_BY_KEY[k].codec for k in USED_TRANSCODE_KEYS))
+# Encoders we need (to grade an ffmpeg build and to skip codecs cleanly).  The
+# Apple tier is excluded: its encoder is resolved at runtime and always has a
+# generic-AAC fallback, so it never forces a bundled-ffmpeg install.
+REQUIRED_ENCODERS = tuple(dict.fromkeys(
+    TRANSCODE_BY_KEY[k].codec for k in USED_TRANSCODE_KEYS if k != APPLE_AAC_KEY))
 
 # --- Verdicts ----------------------------------------------------------------
 PASS, WARN, FAIL, SKIP = "pass", "warn", "fail", "skip"
@@ -508,6 +523,57 @@ def transcode_measure(ffmpeg, src, codec, bitrate, ext, workdir):
             pass
 
 
+# --- Apple Music: use the real Apple AAC encoder when available --------------
+
+def _afconvert_path():
+    """Path to macOS's built-in afconvert (the real Apple AAC encoder), or None."""
+    if sys.platform != "darwin":
+        return None
+    p = shutil.which("afconvert") or "/usr/bin/afconvert"
+    return p if os.path.exists(p) else None
+
+
+def resolve_apple_aac(encoders):
+    """Choose the best AAC encoder for the Apple Music tier.
+
+    Returns (kind, ffmpeg_codec, note):
+      * ("ffmpeg",    "aac_at", ...) Apple's CoreAudio AAC via ffmpeg AudioToolbox
+      * ("afconvert", None,     ...) Apple's CoreAudio AAC via /usr/bin/afconvert
+      * ("ffmpeg",    "aac",    ...) ffmpeg's generic AAC (a proxy, off macOS)
+    """
+    if "aac_at" in encoders:
+        return "ffmpeg", "aac_at", "Apple aac_at"
+    if _afconvert_path():
+        return "afconvert", None, "Apple afconvert"
+    return "ffmpeg", "aac", "ffmpeg aac (proxy)"
+
+
+def transcode_measure_afconvert(ffmpeg, src, bitrate, workdir):
+    """Encode with macOS afconvert (real Apple AAC), then measure the decode."""
+    afc = _afconvert_path()
+    if not afc:
+        raise FFmpegError("afconvert not available")
+    # afconvert wants an uncompressed input; normalize to a temp wav first.
+    wav = os.path.join(workdir, "afc_in.wav")
+    dec = _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                "-i", src, "-c:a", "pcm_s24le", wav])
+    if dec.returncode != 0 or not os.path.exists(wav):
+        raise FFmpegError(f"afconvert pre-decode failed: {dec.stderr.strip()[:200]}")
+    out = os.path.join(workdir, f"enc_apple_{bitrate}.m4a")
+    bps = str(int(str(bitrate).rstrip("k")) * 1000)
+    enc = _run([afc, "-d", "aac", "-f", "m4af", "-b", bps, wav, out])
+    try:
+        if enc.returncode != 0 or not os.path.exists(out):
+            raise FFmpegError(f"afconvert encode failed: {enc.stderr.strip()[:200]}")
+        return measure(ffmpeg, out)
+    finally:
+        for f in (wav, out):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
 # =============================================================================
 #  Per-file analysis orchestration (multi-service)
 # =============================================================================
@@ -527,6 +593,7 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None):
     tp = master["true_peak"]
 
     # --- Run each unique lossy transcode once --------------------------------
+    enc_set = available_encoders if available_encoders is not None else ffmpeg_encoders(ffmpeg)
     transcodes = {}  # key -> physics result
     total = len(USED_TRANSCODE_KEYS)
     with tempfile.TemporaryDirectory(prefix="strmconv_") as workdir:
@@ -538,16 +605,27 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None):
             entry = {"key": tkey, "label": ts.label, "codec": ts.codec,
                      "bitrate": ts.bitrate, "decoded_tp": None, "decoded_lufs": None,
                      "overshoot": None, "loudness_drift": None,
-                     "unity_verdict": PASS, "error": None, "unavailable": False}
+                     "unity_verdict": PASS, "error": None, "unavailable": False,
+                     "encoder_used": None}
 
-            if available_encoders is not None and ts.codec not in available_encoders:
-                entry.update(unavailable=True, unity_verdict=SKIP,
-                             error=f"'{ts.codec}' encoder not available in this ffmpeg build")
-                transcodes[tkey] = entry
-                continue
+            # Decide how to encode this tier.
+            if tkey == APPLE_AAC_KEY:
+                kind, codec, note = resolve_apple_aac(enc_set)
+                entry["encoder_used"] = note
+                entry["codec"] = codec or "afconvert"
+            else:
+                kind, codec = "ffmpeg", ts.codec
+                if available_encoders is not None and codec not in enc_set:
+                    entry.update(unavailable=True, unity_verdict=SKIP,
+                                 error=f"'{codec}' encoder not available in this ffmpeg build")
+                    transcodes[tkey] = entry
+                    continue
 
             try:
-                m = transcode_measure(ffmpeg, path, ts.codec, ts.bitrate, ts.ext, workdir)
+                if kind == "afconvert":
+                    m = transcode_measure_afconvert(ffmpeg, path, ts.bitrate, workdir)
+                else:
+                    m = transcode_measure(ffmpeg, path, codec, ts.bitrate, ts.ext, workdir)
                 dtp = m["true_peak"]
                 dlufs = m["integrated_lufs"]
                 entry["decoded_tp"] = dtp
@@ -582,7 +660,8 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None):
                 v = evaluate_peak(dtp, ceiling)  # a clipping master still clips losslessly
                 tiers.append({"key": tkey, "label": LOSSLESS[tkey], "context": ctx,
                               "lossless": True, "decoded_tp": dtp, "overshoot": over,
-                              "playback_tp": ptp, "verdict": v, "error": None})
+                              "playback_tp": ptp, "verdict": v, "error": None,
+                              "encoder_used": None})
                 if dtp is not None and dtp > CLIP_CEILING:
                     any_clip = True
             else:
@@ -604,7 +683,8 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None):
                         overs.append(over)
                 tiers.append({"key": tkey, "label": tr["label"], "context": ctx,
                               "lossless": False, "decoded_tp": dtp, "overshoot": over,
-                              "playback_tp": ptp, "verdict": v, "error": tr["error"]})
+                              "playback_tp": ptp, "verdict": v, "error": tr["error"],
+                              "encoder_used": tr.get("encoder_used")})
             svc_worst = worst(svc_worst, v)
 
         services.append({
@@ -696,6 +776,8 @@ def _service_block(svc):
     for t in svc["tiers"]:
         tvc = COLORS[t["verdict"]]
         extra = LOSSLESS_TAG if t["lossless"] else ""
+        if t.get("encoder_used"):
+            extra += f'<span class="tag enc">{html.escape(t["encoder_used"])}</span>'
         err = f'<div class="err">{html.escape(t["error"])}</div>' if t["error"] else ""
         rows.append(
             f'<tr>'
@@ -731,6 +813,24 @@ def _service_block(svc):
 
 
 LOSSLESS_TAG = '<span class="tag">lossless</span>'
+
+# Reliability "sheet" shown near the top of every report so users know how much
+# to trust the numbers.  Plain string (no f-string) — safe to embed verbatim.
+RELIABILITY_BOX = """
+<section class="reliability">
+  <h3>How reliable is this?</h3>
+  <table>
+    <tr><td class="hi">High</td><td>Loudness math (LUFS, normalization gain, "plays at") — deterministic ITU-R BS.1770.</td></tr>
+    <tr><td class="hi">High</td><td>Overshoot direction &amp; clipping flags — a real encode&rarr;decode round-trip, not a formula.</td></tr>
+    <tr><td class="hi">High</td><td>Relative comparisons (codec vs codec, master vs master; lossless adds nothing).</td></tr>
+    <tr><td class="hi">High</td><td>Apple Music on macOS — uses Apple's real AAC encoder (AudioToolbox / afconvert).</td></tr>
+    <tr><td class="mid">Approx</td><td>Absolute overshoot magnitude per service — &plusmn;~0.3 dB; ffmpeg encoders are faithful proxies.</td></tr>
+    <tr><td class="mid">Approx</td><td>Service parameters (targets, bitrates) — publicly reported and change over time.</td></tr>
+  </table>
+  <div class="snote">Use it as a relative, conservative pre-delivery check &mdash; not a bit-exact prediction
+  of any one service's encoder, and never a substitute for critical listening.</div>
+</section>
+"""
 
 
 def _file_section(r):
@@ -817,6 +917,13 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
     .snote{font-size:11px;opacity:.6;font-style:italic;margin-bottom:6px}
     .tag{display:inline-block;margin-left:6px;font-size:9px;text-transform:uppercase;letter-spacing:.5px;
       background:#2a2a2a;color:#9ad;border-radius:4px;padding:1px 5px;vertical-align:middle}
+    .tag.enc{color:#7ddf9f;text-transform:none;letter-spacing:0}
+    .reliability{margin:6px 32px 4px;background:#161616;border:1px solid #242424;border-radius:12px;padding:14px 18px}
+    .reliability h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;opacity:.7}
+    .reliability table{width:auto;margin:0;font-size:12.5px}
+    .reliability td{border:0;padding:3px 14px 3px 0;vertical-align:top}
+    .reliability td.hi{color:#1db954;font-weight:700;white-space:nowrap}
+    .reliability td.mid{color:#f5a623;font-weight:700;white-space:nowrap}
     table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
     th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #242424;vertical-align:middle}
     th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;opacity:.6}
@@ -844,6 +951,7 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
   <div class="stat" style="color:{COLORS[WARN]}"><div class="n">{n_warn}</div><div class="l">warn</div></div>
   <div class="stat" style="color:{COLORS[FAIL]}"><div class="n">{n_fail}</div><div class="l">fail</div></div>
 </div>
+{RELIABILITY_BOX}
 <main>{sections}</main>
 <footer>
   "Decoded TP" is the codec's decoded true peak at unity gain; "Overshoot" is
@@ -914,11 +1022,12 @@ def print_text(r, color=True):
         print(paint(s["verdict"], head + f"[{LABELS[s['verdict']]}]"))
         for t in s["tiers"]:
             tag = " (lossless)" if t["lossless"] else ""
+            enc = f"  · {t['encoder_used']}" if t.get("encoder_used") else ""
             line = (f"     {t['label']+tag:<22}"
                     f"dec {_v(t['decoded_tp'],'',digits=2):>7} "
                     f"over {_v(t['overshoot'],'',digits=2,signed=True):>7} "
                     f"play {_v(t['playback_tp'],'',digits=2):>7}   ")
-            print(line + paint(t["verdict"], LABELS[t["verdict"]]))
+            print(line + paint(t["verdict"], LABELS[t["verdict"]]) + enc)
             if t["verdict"] == SKIP:
                 skipped.add(t["label"])
 
@@ -956,6 +1065,10 @@ def run_cli(args):
     else:
         for r in results:
             print_text(r, color=not args.no_color)
+        print("\nReliability: a relative, conservative pre-delivery check. Loudness math and "
+              "clipping\nflags are solid; absolute per-service overshoot is a faithful proxy "
+              "(±~0.3 dB).\nApple Music uses its real encoder on macOS. Not a substitute for "
+              "critical listening.", file=sys.stderr)
 
     if args.report:
         build_report(results, args.report, ffmpeg_version(ffmpeg))
@@ -1245,6 +1358,8 @@ class App:
                                         tags=("svc", s["verdict"]), open=True)
             for t in s["tiers"]:
                 lbl = t["label"] + ("  (lossless)" if t["lossless"] else "")
+                if t.get("encoder_used"):
+                    lbl += f"  · {t['encoder_used']}"
                 self.detail.insert(
                     parent, "end", text="   " + lbl,
                     values=(_g(t["decoded_tp"], " dBTP"),

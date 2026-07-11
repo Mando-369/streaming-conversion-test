@@ -31,6 +31,13 @@
     .snote{font-size:11px;opacity:.6;font-style:italic;margin-bottom:6px}
     .tag{display:inline-block;margin-left:6px;font-size:9px;text-transform:uppercase;letter-spacing:.5px;
       background:#2a2a2a;color:#9ad;border-radius:4px;padding:1px 5px;vertical-align:middle}
+    .tag.enc{color:#7ddf9f;text-transform:none;letter-spacing:0}
+    .reliability{margin:6px 32px 4px;background:#161616;border:1px solid #242424;border-radius:12px;padding:14px 18px}
+    .reliability h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;opacity:.7}
+    .reliability table{width:auto;margin:0;font-size:12.5px}
+    .reliability td{border:0;padding:3px 14px 3px 0;vertical-align:top}
+    .reliability td.hi{color:#1db954;font-weight:700;white-space:nowrap}
+    .reliability td.mid{color:#f5a623;font-weight:700;white-space:nowrap}
     table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
     th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #242424;vertical-align:middle}
     th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;opacity:.6}
@@ -45,7 +52,7 @@
 <header>
   <h1>Streaming Conversion Test</h1>
   <div class="meta">Per-service transcode stability &amp; true-peak overshoot &middot;
-   generated 2026-07-12 00:27 &middot; ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers</div>
+   generated 2026-07-12 00:51 &middot; ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers</div>
 </header>
 <div class="summary">
   <div class="stat"><div class="n">2</div><div class="l">files</div></div>
@@ -53,6 +60,21 @@
   <div class="stat" style="color:#f5a623"><div class="n">0</div><div class="l">warn</div></div>
   <div class="stat" style="color:#e0245e"><div class="n">1</div><div class="l">fail</div></div>
 </div>
+
+<section class="reliability">
+  <h3>How reliable is this?</h3>
+  <table>
+    <tr><td class="hi">High</td><td>Loudness math (LUFS, normalization gain, "plays at") — deterministic ITU-R BS.1770.</td></tr>
+    <tr><td class="hi">High</td><td>Overshoot direction &amp; clipping flags — a real encode&rarr;decode round-trip, not a formula.</td></tr>
+    <tr><td class="hi">High</td><td>Relative comparisons (codec vs codec, master vs master; lossless adds nothing).</td></tr>
+    <tr><td class="hi">High</td><td>Apple Music on macOS — uses Apple's real AAC encoder (AudioToolbox / afconvert).</td></tr>
+    <tr><td class="mid">Approx</td><td>Absolute overshoot magnitude per service — &plusmn;~0.3 dB; ffmpeg encoders are faithful proxies.</td></tr>
+    <tr><td class="mid">Approx</td><td>Service parameters (targets, bitrates) — publicly reported and change over time.</td></tr>
+  </table>
+  <div class="snote">Use it as a relative, conservative pre-delivery check &mdash; not a bit-exact prediction
+  of any one service's encoder, and never a substitute for critical listening.</div>
+</section>
+
 <main>
     <section class="file">
       <div class="fhead">
@@ -107,13 +129,13 @@
         <span class="starget">target -16 LUFS &middot;
           plays ~-16.00 LUFS (gain -7.65 dB, down)
           &middot; ceiling -1 dBTP</span>
-      </div><div class="snote">Apple encodes AAC with its own encoder; ffmpeg&#x27;s AAC is a close proxy, not identical.</div>
+      </div><div class="snote">On macOS this uses Apple&#x27;s real AAC encoder (AudioToolbox / afconvert); on Windows/Linux it falls back to ffmpeg&#x27;s AAC as a proxy.</div>
       <table>
         <thead><tr>
           <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
           <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
         </tr></thead>
-        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-15.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-15.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+        <tbody><tr><td><b>AAC 256k</b><span class="tag enc">Apple aac_at</span><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">-7.65 dBTP</td><td class="num" style="color:#1db954"><b>+0.01 dB</b></td><td class="num">-15.30 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-15.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
       </table>
     </div>
     
@@ -236,7 +258,7 @@
             YES</div>
           <div class="sub">decoded TP &gt; 0 dBFS</div></div>
       </div>
-      <div class="spills"><span class="spill" style="background:#e0245e">Spotify FAIL</span><span class="spill" style="background:#f5a623">Apple Music WARN</span><span class="spill" style="background:#e0245e">YouTube Music FAIL</span><span class="spill" style="background:#f5a623">Amazon Music WARN</span><span class="spill" style="background:#f5a623">Tidal WARN</span><span class="spill" style="background:#f5a623">Deezer WARN</span><span class="spill" style="background:#e0245e">SoundCloud FAIL</span></div>
+      <div class="spills"><span class="spill" style="background:#e0245e">Spotify FAIL</span><span class="spill" style="background:#e0245e">Apple Music FAIL</span><span class="spill" style="background:#e0245e">YouTube Music FAIL</span><span class="spill" style="background:#f5a623">Amazon Music WARN</span><span class="spill" style="background:#f5a623">Tidal WARN</span><span class="spill" style="background:#f5a623">Deezer WARN</span><span class="spill" style="background:#e0245e">SoundCloud FAIL</span></div>
       
     <div class="svc">
       <div class="shead">
@@ -259,17 +281,17 @@
     <div class="svc">
       <div class="shead">
         <span class="sname">Apple Music</span>
-        <span class="pill" style="background:#f5a623">WARN</span>
+        <span class="pill" style="background:#e0245e">FAIL</span>
         <span class="starget">target -16 LUFS &middot;
           plays ~-16.00 LUFS (gain -15.75 dB, down)
           &middot; ceiling -1 dBTP</span>
-      </div><div class="snote">Apple encodes AAC with its own encoder; ffmpeg&#x27;s AAC is a close proxy, not identical.</div>
+      </div><div class="snote">On macOS this uses Apple&#x27;s real AAC encoder (AudioToolbox / afconvert); on Windows/Linux it falls back to ffmpeg&#x27;s AAC as a proxy.</div>
       <table>
         <thead><tr>
           <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
           <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
         </tr></thead>
-        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-15.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-15.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+        <tbody><tr><td><b>AAC 256k</b><span class="tag enc">Apple aac_at</span><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">0.04 dBTP</td><td class="num" style="color:#e0245e"><b>+0.12 dB</b></td><td class="num">-15.71 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="135.1" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-15.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
       </table>
     </div>
     
