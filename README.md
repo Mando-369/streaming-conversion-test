@@ -11,9 +11,11 @@ those services actually serve (Ogg Vorbis, AAC, Opus, MP3, plus lossless
 FLAC/ALAC), decodes them back, and measures the result — no approximation of the
 transcode itself.
 
-**One file. No folder. No manual setup.** Download `spotify_conversion_test_app.py`,
-run it, and on first launch it installs everything it needs into a private
-per-user folder — no admin rights, no Homebrew/apt, nothing system-wide.
+**No manual setup.** The whole app is a single Python file
+(`spotify_conversion_test_app.py`); on first launch it installs everything it
+needs into a private per-user folder — no admin rights, no Homebrew/apt, no
+virtual environment, nothing system-wide. On macOS a bundled `run.command`
+launcher lets you **double-click to open** it.
 
 ---
 
@@ -91,6 +93,11 @@ is the reference for the −14 LUFS / −1 dBTP rules:
 Everything it installs lives under one per-user folder (`--where` prints it) and
 can be removed at any time.
 
+**No virtual environment needed.** Helpers are installed with `pip install --target`
+into that private folder — it never touches your system Python's packages, needs
+no `sudo`, and sidesteps the "externally-managed-environment" restriction, so
+there's nothing to set up or activate.
+
 > **GUI note:** the desktop window needs Python's Tk. The python.org installers
 > include it. On Homebrew Python run `brew install python-tk`. The command line
 > works without Tk.
@@ -99,15 +106,24 @@ can be removed at any time.
 
 ## Running it
 
-**Desktop app (drag-and-drop):**
+**Easiest (macOS) — double-click `run.command`.** Keep it in the same folder as
+`spotify_conversion_test_app.py`. The first time, macOS Gatekeeper may block it —
+**right-click → Open**, then confirm; after that a normal double-click works. It
+automatically finds a Tk-capable Python and opens the desktop app.
+
+**Or launch the desktop app from a terminal:**
 
 ```bash
 python3 spotify_conversion_test_app.py
 ```
 
-Drop one or more master files — or a whole folder — onto the window. Results
-appear per file with a per-service, codec-by-codec breakdown; click
-**Save HTML report…** for a shareable, fully self-contained report.
+> If the window doesn't appear and you see a Tk message, your `python3` lacks Tk.
+> On macOS, Apple's built-in `/usr/bin/python3` has it —
+> `/usr/bin/python3 spotify_conversion_test_app.py` — or run `brew install python-tk`.
+
+Pick one or more master files — or a whole folder. Results appear per file with a
+per-service, codec-by-codec breakdown; click **Save HTML report…** for a
+shareable, fully self-contained report.
 
 **Command line (batch / scripting):**
 
