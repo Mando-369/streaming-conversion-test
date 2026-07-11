@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Streaming Conversion Test</title><style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;background:#121212;color:#e8e8e8;
+      font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
+    header{padding:28px 32px;background:linear-gradient(135deg,#1db954,#0d6b30);color:#fff}
+    header h1{margin:0 0 4px;font-size:22px}
+    header .meta{opacity:.9;font-size:12px}
+    .summary{display:flex;gap:12px;padding:18px 32px;flex-wrap:wrap}
+    .stat{background:#1e1e1e;border-radius:10px;padding:12px 18px;min-width:90px}
+    .stat .n{font-size:22px;font-weight:700}.stat .l{font-size:11px;opacity:.7;text-transform:uppercase;letter-spacing:.5px}
+    main{padding:0 32px 40px}
+    section.file{background:#181818;border:1px solid #262626;border-radius:14px;padding:20px 22px;margin:18px 0}
+    .fhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .fhead h2{margin:0;font-size:17px;word-break:break-all}
+    .badge,.pill{color:#fff;font-weight:700;border-radius:20px;padding:3px 12px;font-size:11px;letter-spacing:.5px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+    .card{background:#202020;border-radius:10px;padding:10px 12px}
+    .card .k{font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.4px}
+    .card .v{font-size:18px;font-weight:700;margin:2px 0}
+    .card .sub{font-size:11px;opacity:.55}
+    .spills{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px}
+    .spill{color:#fff;font-weight:700;border-radius:6px;padding:3px 9px;font-size:11px}
+    .svc{background:#161616;border:1px solid #242424;border-radius:10px;padding:12px 14px;margin:10px 0}
+    .shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+    .sname{font-size:15px;font-weight:700}
+    .starget{font-size:12px;opacity:.6}
+    .snote{font-size:11px;opacity:.6;font-style:italic;margin-bottom:6px}
+    .tag{display:inline-block;margin-left:6px;font-size:9px;text-transform:uppercase;letter-spacing:.5px;
+      background:#2a2a2a;color:#9ad;border-radius:4px;padding:1px 5px;vertical-align:middle}
+    table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13px}
+    th,td{text-align:left;padding:7px 9px;border-bottom:1px solid #242424;vertical-align:middle}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;opacity:.6}
+    td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+    .ctx{font-size:11px;opacity:.5}
+    .err{font-size:11px;color:#e0245e}
+    .pill{font-size:10px;padding:2px 9px}
+    footer{padding:20px 32px;opacity:.5;font-size:12px;border-top:1px solid #262626}
+    a{color:#1db954}
+    </style></head>
+<body>
+<header>
+  <h1>Streaming Conversion Test</h1>
+  <div class="meta">Per-service transcode stability &amp; true-peak overshoot &middot;
+   generated 2026-07-12 00:27 &middot; ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers</div>
+</header>
+<div class="summary">
+  <div class="stat"><div class="n">2</div><div class="l">files</div></div>
+  <div class="stat" style="color:#1db954"><div class="n">1</div><div class="l">pass</div></div>
+  <div class="stat" style="color:#f5a623"><div class="n">0</div><div class="l">warn</div></div>
+  <div class="stat" style="color:#e0245e"><div class="n">1</div><div class="l">fail</div></div>
+</div>
+<main>
+    <section class="file">
+      <div class="fhead">
+        <h2>compliant.wav</h2>
+        <span class="badge" style="background:#1db954">PASS</span>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="k">Integrated loudness</div>
+          <div class="v">-8.35 LUFS</div>
+          <div class="sub">measured (BS.1770)</div></div>
+        <div class="card"><div class="k">Master true peak</div>
+          <div class="v">-7.66 dBTP</div>
+          <div class="sub">4&times; oversampled</div></div>
+        <div class="card"><div class="k">Sample peak</div>
+          <div class="v">-7.66 dBFS</div>
+          <div class="sub">inter-sample -0.00 dB</div></div>
+        <div class="card"><div class="k">Worst overshoot</div>
+          <div class="v">+0.61 dB</div>
+          <div class="sub">across all lossy codecs</div></div>
+        <div class="card"><div class="k">Loudness range</div>
+          <div class="v">0.00 LU</div>
+          <div class="sub">LRA</div></div>
+        <div class="card"><div class="k">Any codec clips?</div>
+          <div class="v" style="color:#1db954">
+            no</div>
+          <div class="sub">decoded TP &gt; 0 dBFS</div></div>
+      </div>
+      <div class="spills"><span class="spill" style="background:#1db954">Spotify PASS</span><span class="spill" style="background:#1db954">Apple Music PASS</span><span class="spill" style="background:#1db954">YouTube Music PASS</span><span class="spill" style="background:#1db954">Amazon Music PASS</span><span class="spill" style="background:#1db954">Tidal PASS</span><span class="spill" style="background:#1db954">Deezer PASS</span><span class="spill" style="background:#1db954">SoundCloud PASS</span></div>
+      
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Spotify</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -5.65 dB, down)
+          &middot; ceiling -2 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Ogg Vorbis 96k</b><div class="ctx">Low quality / weak connection</div></td><td class="num">-7.10 dBTP</td><td class="num" style="color:#1db954"><b>+0.56 dB</b></td><td class="num">-12.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>Ogg Vorbis 160k</b><div class="ctx">Free desktop/mobile</div></td><td class="num">-7.14 dBTP</td><td class="num" style="color:#1db954"><b>+0.52 dB</b></td><td class="num">-12.79 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>Ogg Vorbis 320k</b><div class="ctx">Premium (very high)</div></td><td class="num">-7.50 dBTP</td><td class="num" style="color:#1db954"><b>+0.16 dB</b></td><td class="num">-13.15 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>AAC 128k</b><div class="ctx">Web player (free)</div></td><td class="num">-7.05 dBTP</td><td class="num" style="color:#1db954"><b>+0.61 dB</b></td><td class="num">-12.70 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>AAC 256k</b><div class="ctx">Web player / Google Cast (premium)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-13.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Apple Music</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -16 LUFS &middot;
+          plays ~-16.00 LUFS (gain -7.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div><div class="snote">Apple encodes AAC with its own encoder; ffmpeg&#x27;s AAC is a close proxy, not identical.</div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-15.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-15.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">YouTube Music</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -5.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Opus 128k</b><div class="ctx">Opus (typical)</div></td><td class="num">-7.44 dBTP</td><td class="num" style="color:#1db954"><b>+0.22 dB</b></td><td class="num">-13.09 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>Opus 160k</b><div class="ctx">Opus (high)</div></td><td class="num">-7.50 dBTP</td><td class="num" style="color:#1db954"><b>+0.16 dB</b></td><td class="num">-13.15 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>AAC 128k</b><div class="ctx">AAC (fallback)</div></td><td class="num">-7.05 dBTP</td><td class="num" style="color:#1db954"><b>+0.61 dB</b></td><td class="num">-12.70 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Amazon Music</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -5.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC (standard)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-13.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HD / Ultra HD (FLAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-13.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Tidal</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -5.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC (lossy)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-13.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HiFi / Max (FLAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-13.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Deezer</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -15 LUFS &middot;
+          plays ~-15.00 LUFS (gain -6.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>MP3 128k</b><div class="ctx">MP3 128 (standard)</div></td><td class="num">-8.09 dBTP</td><td class="num" style="color:#1db954"><b>-0.43 dB</b></td><td class="num">-14.74 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>MP3 320k</b><div class="ctx">MP3 320 (high)</div></td><td class="num">-7.65 dBTP</td><td class="num" style="color:#1db954"><b>+0.01 dB</b></td><td class="num">-14.30 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HiFi (FLAC)</div></td><td class="num">-7.66 dBTP</td><td class="num" style="color:#1db954"><b>+0.00 dB</b></td><td class="num">-14.31 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">SoundCloud</span>
+        <span class="pill" style="background:#1db954">PASS</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -5.65 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Opus 64k</b><div class="ctx">Opus 64 (streaming)</div></td><td class="num">-7.31 dBTP</td><td class="num" style="color:#1db954"><b>+0.35 dB</b></td><td class="num">-12.96 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 (Go+)</div></td><td class="num">-7.49 dBTP</td><td class="num" style="color:#1db954"><b>+0.17 dB</b></td><td class="num">-13.14 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr><tr><td><b>MP3 128k</b><div class="ctx">MP3 128 (fallback)</div></td><td class="num">-8.09 dBTP</td><td class="num" style="color:#1db954"><b>-0.43 dB</b></td><td class="num">-13.74 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="0.0" height="8" rx="2" fill="#1db954"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#1db954">PASS</span></td></tr></tbody>
+      </table>
+    </div>
+    
+    </section>
+    
+
+    <section class="file">
+      <div class="fhead">
+        <h2>hot.wav</h2>
+        <span class="badge" style="background:#e0245e">FAIL</span>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="k">Integrated loudness</div>
+          <div class="v">-0.25 LUFS</div>
+          <div class="sub">measured (BS.1770)</div></div>
+        <div class="card"><div class="k">Master true peak</div>
+          <div class="v">-0.08 dBTP</div>
+          <div class="sub">4&times; oversampled</div></div>
+        <div class="card"><div class="k">Sample peak</div>
+          <div class="v">-0.04 dBFS</div>
+          <div class="sub">inter-sample -0.04 dB</div></div>
+        <div class="card"><div class="k">Worst overshoot</div>
+          <div class="v">+0.44 dB</div>
+          <div class="sub">across all lossy codecs</div></div>
+        <div class="card"><div class="k">Loudness range</div>
+          <div class="v">0.00 LU</div>
+          <div class="sub">LRA</div></div>
+        <div class="card"><div class="k">Any codec clips?</div>
+          <div class="v" style="color:#e0245e">
+            YES</div>
+          <div class="sub">decoded TP &gt; 0 dBFS</div></div>
+      </div>
+      <div class="spills"><span class="spill" style="background:#e0245e">Spotify FAIL</span><span class="spill" style="background:#f5a623">Apple Music WARN</span><span class="spill" style="background:#e0245e">YouTube Music FAIL</span><span class="spill" style="background:#f5a623">Amazon Music WARN</span><span class="spill" style="background:#f5a623">Tidal WARN</span><span class="spill" style="background:#f5a623">Deezer WARN</span><span class="spill" style="background:#e0245e">SoundCloud FAIL</span></div>
+      
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Spotify</span>
+        <span class="pill" style="background:#e0245e">FAIL</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -13.75 dB, down)
+          &middot; ceiling -2 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Ogg Vorbis 96k</b><div class="ctx">Low quality / weak connection</div></td><td class="num">0.36 dBTP</td><td class="num" style="color:#e0245e"><b>+0.44 dB</b></td><td class="num">-13.39 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="149.3" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>Ogg Vorbis 160k</b><div class="ctx">Free desktop/mobile</div></td><td class="num">0.11 dBTP</td><td class="num" style="color:#e0245e"><b>+0.19 dB</b></td><td class="num">-13.64 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="138.2" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>Ogg Vorbis 320k</b><div class="ctx">Premium (very high)</div></td><td class="num">0.07 dBTP</td><td class="num" style="color:#e0245e"><b>+0.15 dB</b></td><td class="num">-13.68 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="136.4" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>AAC 128k</b><div class="ctx">Web player (free)</div></td><td class="num">0.22 dBTP</td><td class="num" style="color:#e0245e"><b>+0.30 dB</b></td><td class="num">-13.53 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="143.1" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>AAC 256k</b><div class="ctx">Web player / Google Cast (premium)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-13.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Apple Music</span>
+        <span class="pill" style="background:#f5a623">WARN</span>
+        <span class="starget">target -16 LUFS &middot;
+          plays ~-16.00 LUFS (gain -15.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div><div class="snote">Apple encodes AAC with its own encoder; ffmpeg&#x27;s AAC is a close proxy, not identical.</div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 VBR (standard)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-15.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>ALAC</b><span class="tag">lossless</span><div class="ctx">Lossless / Hi-Res Lossless (ALAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-15.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">YouTube Music</span>
+        <span class="pill" style="background:#e0245e">FAIL</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -13.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Opus 128k</b><div class="ctx">Opus (typical)</div></td><td class="num">0.04 dBTP</td><td class="num" style="color:#e0245e"><b>+0.12 dB</b></td><td class="num">-13.71 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="135.1" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>Opus 160k</b><div class="ctx">Opus (high)</div></td><td class="num">0.01 dBTP</td><td class="num" style="color:#e0245e"><b>+0.09 dB</b></td><td class="num">-13.74 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.8" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>AAC 128k</b><div class="ctx">AAC (fallback)</div></td><td class="num">0.22 dBTP</td><td class="num" style="color:#e0245e"><b>+0.30 dB</b></td><td class="num">-13.53 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="143.1" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Amazon Music</span>
+        <span class="pill" style="background:#f5a623">WARN</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -13.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC (standard)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-13.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HD / Ultra HD (FLAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-13.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Tidal</span>
+        <span class="pill" style="background:#f5a623">WARN</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -13.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>AAC 256k</b><div class="ctx">AAC (lossy)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-13.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HiFi / Max (FLAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-13.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">Deezer</span>
+        <span class="pill" style="background:#f5a623">WARN</span>
+        <span class="starget">target -15 LUFS &middot;
+          plays ~-15.00 LUFS (gain -14.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>MP3 128k</b><div class="ctx">MP3 128 (standard)</div></td><td class="num">-0.43 dBTP</td><td class="num" style="color:#f5a623"><b>-0.35 dB</b></td><td class="num">-15.18 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="114.2" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>MP3 320k</b><div class="ctx">MP3 320 (high)</div></td><td class="num">-0.04 dBTP</td><td class="num" style="color:#f5a623"><b>+0.04 dB</b></td><td class="num">-14.79 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="131.6" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>FLAC</b><span class="tag">lossless</span><div class="ctx">HiFi (FLAC)</div></td><td class="num">-0.08 dBTP</td><td class="num" style="color:#f5a623"><b>+0.00 dB</b></td><td class="num">-14.83 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="129.8" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+
+    <div class="svc">
+      <div class="shead">
+        <span class="sname">SoundCloud</span>
+        <span class="pill" style="background:#e0245e">FAIL</span>
+        <span class="starget">target -14 LUFS &middot;
+          plays ~-14.00 LUFS (gain -13.75 dB, down)
+          &middot; ceiling -1 dBTP</span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
+          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+        </tr></thead>
+        <tbody><tr><td><b>Opus 64k</b><div class="ctx">Opus 64 (streaming)</div></td><td class="num">0.28 dBTP</td><td class="num" style="color:#e0245e"><b>+0.36 dB</b></td><td class="num">-13.47 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="145.8" height="8" rx="2" fill="#e0245e"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#e0245e">FAIL</span></td></tr><tr><td><b>AAC 256k</b><div class="ctx">AAC 256 (Go+)</div></td><td class="num">-0.00 dBTP</td><td class="num" style="color:#f5a623"><b>+0.08 dB</b></td><td class="num">-13.75 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="133.3" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr><tr><td><b>MP3 128k</b><div class="ctx">MP3 128 (fallback)</div></td><td class="num">-0.43 dBTP</td><td class="num" style="color:#f5a623"><b>-0.35 dB</b></td><td class="num">-14.18 dBTP</td><td><svg width="200" height="16" viewBox="0 0 200 16" style="vertical-align:middle"><rect x="0" y="4" width="200" height="8" rx="2" fill="#2a2a2a"/><rect x="0" y="4" width="114.2" height="8" rx="2" fill="#f5a623"/><line x1="88.9" y1="1" x2="88.9" y2="15" stroke="#f5a623" stroke-width="1.5" stroke-dasharray="2,1"/><line x1="133.3" y1="1" x2="133.3" y2="15" stroke="#e0245e" stroke-width="1.5"/></svg></td><td><span class="pill" style="background:#f5a623">WARN</span></td></tr></tbody>
+      </table>
+    </div>
+    
+    </section>
+    </main>
+<footer>
+  "Decoded TP" is the codec's decoded true peak at unity gain; "Overshoot" is
+  decoded minus master true peak; "At playback" adds each service's normalization
+  gain.  Targets are publicly-reported and approximate.  ffmpeg encoders are a
+  faithful proxy, not byte-identical to each service's build (notably Apple's
+  AAC).  Informational — not a substitute for critical listening.
+</footer>
+</body></html>

@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Local editor / assistant config (not for distribution)
+.claude/
+
+# Generated reports (keep docs/sample_report.html, ignore ad-hoc ones)
+/report*.html
