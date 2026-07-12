@@ -98,9 +98,11 @@ into that private folder — it never touches your system Python's packages, nee
 no `sudo`, and sidesteps the "externally-managed-environment" restriction, so
 there's nothing to set up or activate.
 
-> **GUI note:** the desktop window needs Python's Tk. The python.org installers
-> include it. On Homebrew Python run `brew install python-tk`. The command line
-> works without Tk.
+> **GUI note:** the desktop window needs **Tk 8.6+**. The python.org installers
+> include it; on Homebrew run `brew install python-tk@3.14`. **Do not use Apple's
+> `/usr/bin/python3` for the GUI** — it ships a deprecated Tk 8.5 that crashes on
+> window open (the app detects this and prints guidance instead of crashing). The
+> command line works with any Python, no Tk needed.
 
 ---
 
@@ -117,9 +119,10 @@ automatically finds a Tk-capable Python and opens the desktop app.
 python3 spotify_conversion_test_app.py
 ```
 
-> If the window doesn't appear and you see a Tk message, your `python3` lacks Tk.
-> On macOS, Apple's built-in `/usr/bin/python3` has it —
-> `/usr/bin/python3 spotify_conversion_test_app.py` — or run `brew install python-tk`.
+> If you see a Tk message instead of a window, your `python3` doesn't have a
+> working Tk. On macOS, get one with `brew install python-tk@3.14` (then use
+> Homebrew's `python3`) or the python.org installer. Avoid `/usr/bin/python3` for
+> the GUI — its Tk 8.5 crashes.
 
 Pick one or more master files — or a whole folder. Results appear per file with a
 per-service, codec-by-codec breakdown; click **Save HTML report…** for a

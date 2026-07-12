@@ -65,7 +65,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 import argparse
 import datetime
@@ -1415,11 +1415,25 @@ def run_gui(no_install=False):
     except Exception:
         msg = ("This desktop app needs Python's Tk (tkinter), which isn't available "
                "in this Python build.\n"
-               "  • macOS (Homebrew Python):  brew install python-tk\n"
+               "  • macOS (Homebrew Python):  brew install python-tk@3.14\n"
                "  • Or use the official installer from python.org (includes Tk)\n\n"
                "You can still use the command line:\n"
                "  python3 spotify_conversion_test_app.py your_master.wav")
         print(msg, file=sys.stderr)
+        return 3
+
+    # Apple's system / Xcode Python ships a deprecated Tk 8.5 that imports fine
+    # but ABORTS the process the moment it opens a window (Tcl_Panic in TkpInit).
+    # A C-level abort can't be caught in Python, so refuse to launch on it and
+    # point to a working interpreter instead of crashing.
+    if sys.platform == "darwin" and float(_tk.TkVersion) < 8.6:
+        print("This Python's Tk is Apple's deprecated version 8.5, which crashes when it opens\n"
+              "a window (typically /usr/bin/python3 from Xcode / Command Line Tools).\n"
+              "Use a Python with Tk 8.6+ for the desktop app:\n"
+              "  • brew install python-tk@3.14      then run Homebrew's python3\n"
+              "  • or install Python from python.org (bundles Tk 8.6)\n\n"
+              "The command line works with any Python:\n"
+              "  python3 spotify_conversion_test_app.py your_master.wav", file=sys.stderr)
         return 3
 
     tk, ttk, filedialog, messagebox = _tk, _ttk, _fd, _mb
