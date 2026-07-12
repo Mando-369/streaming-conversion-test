@@ -66,7 +66,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.4.1"
+__version__ = "2.5.0"
 
 import argparse
 import datetime
@@ -329,14 +329,26 @@ def effective_ceiling(service, integrated_lufs):
 
 
 def evaluate_peak(true_peak, ceiling):
-    """Grade a true peak: FAIL if it clips (>0 dBFS), WARN if above the ceiling."""
+    """Grade a true peak by what actually happens: FAIL only if it CLIPS (>0 dBFS).
+
+    Being above the recommended `ceiling` (e.g. -1 dBTP) but still under 0 dBFS is
+    NOT a warning — it is "above recommended headroom, but not clipping", an
+    advisory the caller surfaces separately (see `above_recommended`).  A hot but
+    clean master (say -0.5 dBTP) plays back safely; the -1 dBTP figure is a
+    guideline, not a clip line, so it never drives the verdict on its own.
+    """
     if true_peak is None:
         return PASS
     if true_peak > CLIP_CEILING:
         return FAIL
-    if true_peak > ceiling:
-        return WARN
     return PASS
+
+
+def above_recommended(true_peak, ceiling):
+    """True when a peak sits above the recommended headroom but does not clip —
+    the "above recommended headroom, but not clipping" advisory case."""
+    return (true_peak is not None
+            and ceiling < true_peak <= CLIP_CEILING)
 
 
 def evaluate_tier(decoded_tp, playback_tp):
@@ -352,16 +364,15 @@ def evaluate_tier(decoded_tp, playback_tp):
                 peak > 0): only audible if a listener disables normalization, or
                 in a downloaded/un-normalized copy.  Common for loud masters,
                 which get turned DOWN at playback and are safe there.
-      * WARN  — within 1 dB of unity clipping (decoded > -1 dBTP): little margin.
-      * PASS  — otherwise.
+      * PASS  — otherwise, INCLUDING a stream that sits above the -1 dBTP
+                recommended headroom but still under 0 dBFS: it doesn't clip, so
+                it isn't a warning (just "above recommended headroom").
     """
     if decoded_tp is None:
         return PASS
     if playback_tp is not None and playback_tp > CLIP_CEILING:
         return FAIL
     if decoded_tp > CLIP_CEILING:
-        return WARN
-    if decoded_tp > TP_CEILING_NORMAL:
         return WARN
     return PASS
 
@@ -830,6 +841,9 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
         "any_clip": any_playback_clip,          # primary tier clips at playback
         "any_unity_clip": any_unity_clip_any,    # primary tier exceeds 0 dBFS at unity
         "any_info_overshoot": any_info_overshoot,  # data-saver tier exceeds 0 dBFS (informational)
+        # Master sits above the -1 dBTP recommended headroom but still under 0 dBFS:
+        # advisory only ("above recommended headroom, but not clipping"), not a verdict.
+        "above_recommended": above_recommended(tp, TP_CEILING_NORMAL),
         "overall": overall,
     }
 
@@ -877,10 +891,18 @@ def build_advice(result):
                 f"safely.{notice}")
 
     headroom = f", {abs(worst_dec):.2f} dB of headroom to spare" if worst_dec is not None else ""
+    if result.get("above_recommended"):
+        # Above the -1 dBTP guideline but nothing clips — advisory, not a warning.
+        return ("safe",
+                f"Above recommended headroom, but not clipping — at {tp:+.2f} dBTP this master sits "
+                f"above the −1 dBTP guideline, yet the primary streaming tiers (Ogg Vorbis 320, "
+                f"AAC 256, MP3 320, lossless) all stay under 0 dBFS{headroom}. It survives "
+                f"conversion intact and plays back safely; pulling down to −1 dBTP is optional, "
+                f"not required.{notice}")
     return ("safe",
             f"Safe — the primary streaming tiers (Ogg Vorbis 320, AAC 256, MP3 320, lossless) all "
-            f"stay under 0 dBFS{headroom}. This master survives conversion intact even at "
-            f"{tp:+.2f} dBTP; no re-export required, and no need to pull it down to −1 dBTP.{notice}")
+            f"stay under 0 dBFS{headroom}, comfortably within the −1 dBTP recommended headroom at "
+            f"{tp:+.2f} dBTP. This master survives conversion intact; no re-export required.{notice}")
 
 
 # =============================================================================
@@ -1305,12 +1327,72 @@ def run_cli(args):
 #  Drag-and-drop desktop GUI (Tkinter) — imported lazily
 # =============================================================================
 
-BG = "#121212"
-PANEL = "#181818"
-CARD = "#202020"
-FG = "#e8e8e8"
-MUTED = "#8a8a8a"
-ACCENT = "#1db954"
+# --- Design-handoff palette (dark, high-contrast; see design/ handoff) --------
+# Tk widget backgrounds can't be translucent, so the design's rgba-over-dark
+# fills are pre-blended here into solid hex approximations over the window bg.
+DESK      = "#0c0d10"   # desktop behind the window
+BG        = "#0f1116"   # window surface
+RAIL      = "#0d0f13"   # left rail
+TITLEBAR  = "#191c22"
+
+CARD      = "#13151a"   # ~white .015 over bg — cards/meters
+CARD2     = "#14161b"   # ~white .02  — tiles, column-header strips
+GRP       = "#16181d"   # ~white .028 — service group header
+BORDER    = "#202227"   # ~white .07  — card/tile borders
+BORDER2   = "#1d1f24"   # ~white .06  — rail edge
+HAIR      = "#1a1c21"   # ~white .045 — row hairlines
+SEP       = "#2e313a"   # lighter grey — vertical column separators
+DASH      = "#33363c"   # ~white .16  — dashed drop-zone border
+HOVER     = "#14161b"   # row hover
+SEL_BG    = "#101f1c"   # selected files-list row (green tint over rail)
+
+# text ramp
+T_PRIMARY = "#f0f2f5"
+T_PRIMARY2= "#e6e8ec"
+T_SEC     = "#c7ccd4"
+T_SEC2    = "#9aa0aa"
+T_MUTED   = "#8a909a"
+T_FAINT   = "#6b7078"
+T_DISABLED= "#5a5f68"
+
+# signal colors
+GREEN     = "#35c98d"
+GREEN_TXT = "#7fd9b0"
+GREEN_DEEP= "#2ea677"
+AMBER     = "#e8b45a"
+AMBER_BAR = "#e0a53a"
+AMBER_MUT = "#b98a3e"
+AMBER_TXT = "#d8b877"
+RED       = "#e5564e"
+RED_VAL   = "#e8635b"
+RED_MUT   = "#c86a63"
+
+# GUI verdict rendering (distinct labels from the CLI/report: OK / CLIP).
+GUI_VCOLOR = {PASS: GREEN, WARN: AMBER, FAIL: RED_VAL, SKIP: T_FAINT, INFO: T_FAINT}
+GUI_VLABEL = {PASS: "OK", WARN: "WARN", FAIL: "CLIP", SKIP: "N/A", INFO: "info"}
+# pre-blended pill backgrounds (signal color at ~0.15 over the window bg)
+GUI_PILLBG = {PASS: "#152c24", WARN: "#2e2718", FAIL: "#2f1b1e", SKIP: "#191b20", INFO: "#191b20"}
+
+# Kept for any legacy references; the facelift uses the ramp above.
+PANEL, FG, MUTED, ACCENT = RAIL, T_PRIMARY2, T_MUTED, GREEN
+
+# Font families to try, best-first; the last is a safe generic fallback.
+_UI_FAMILIES  = ["Hanken Grotesk", "Inter", "Helvetica Neue", "Helvetica", "Arial"]
+_MONO_FAMILIES = ["JetBrains Mono", "SF Mono", "Menlo", "Monaco", "Consolas",
+                  "DejaVu Sans Mono", "Courier New", "Courier"]
+
+
+def _pick_family(root, candidates):
+    """First installed family from `candidates`, else the last (generic)."""
+    try:
+        import tkinter.font as tkfont
+        installed = set(tkfont.families(root))
+        for c in candidates:
+            if c in installed:
+                return c
+    except Exception:
+        pass
+    return candidates[-1]
 
 
 def _g(value, unit="", signed=False):
@@ -1320,6 +1402,14 @@ def _g(value, unit="", signed=False):
     return f"{value:{sign}.2f}{unit}"
 
 
+def _round_rect(canvas, x1, y1, x2, y2, r, **kw):
+    """Draw a rounded rectangle on a Tk canvas (smoothed polygon)."""
+    r = min(r, abs(x2 - x1) / 2, abs(y2 - y1) / 2)
+    pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+           x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+    return canvas.create_polygon(pts, smooth=True, **kw)
+
+
 class App:
     def __init__(self, root, ffmpeg, encoders, missing):
         self.root = root
@@ -1327,18 +1417,29 @@ class App:
         self.encoders = encoders
         self.missing = missing
         self.results = []
+        self.file_rows = []      # custom Files-list row frames (parallel to results)
+        self.sel_index = None
+        self.hide_datasaver = False   # toggle: hide the low-bitrate data-saver tiers
         import queue
         self.events = queue.Queue()
         self._queue_empty = queue.Empty
         self.busy = False
 
+        # Resolve fonts once (fall back gracefully when the design fonts aren't
+        # installed).  self.F(size, weight, mono) returns a Tk font tuple.
+        self.ui_family = _pick_family(root, _UI_FAMILIES)
+        self.mono_family = _pick_family(root, _MONO_FAMILIES)
+
         root.title("Streaming Conversion Test")
-        root.geometry("1200x780")
-        root.minsize(1000, 620)
+        root.geometry("1460x860")
+        root.minsize(1200, 720)
         root.configure(bg=BG)
         self._build_style()
         self._build_ui()
         self._poll()
+
+    def F(self, size, weight="normal", mono=False):
+        return (self.mono_family if mono else self.ui_family, size, weight)
 
     # ------------------------------------------------------------------ styling
     def _build_style(self):
@@ -1347,145 +1448,435 @@ class App:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Treeview",
-                        background=PANEL, fieldbackground=PANEL, foreground=FG,
-                        rowheight=25, borderwidth=0)
-        style.configure("Treeview.Heading",
-                        background=CARD, foreground=MUTED, borderwidth=0,
-                        font=("Helvetica", 10, "bold"))
-        style.map("Treeview", background=[("selected", "#2d3a30")])
-        style.configure("TProgressbar", background=ACCENT, troughcolor=CARD, borderwidth=0)
+        # Slim green progress bar.
+        style.configure("Green.Horizontal.TProgressbar",
+                        background=GREEN, troughcolor="#0c0e12", bordercolor="#0c0e12",
+                        lightcolor=GREEN, darkcolor=GREEN, thickness=7)
+        # Dark, minimal vertical scrollbar for the breakdown canvas.
+        style.configure("Dark.Vertical.TScrollbar",
+                        background=CARD2, troughcolor=BG, bordercolor=BG,
+                        arrowcolor=T_FAINT, darkcolor=CARD2, lightcolor=CARD2,
+                        borderwidth=0, gripcount=0, arrowsize=12)
+        style.map("Dark.Vertical.TScrollbar", background=[("active", BORDER)])
+
+    # ------------------------------------------------------------------- layout
+    # ------------------------------------------------------- reusable widgets
+    _SB_W = 14   # reserved width for the breakdown scrollbar (header alignment)
+    ROWH = 36    # per-service breakdown row height (so column rules span it fully)
+
+    def _bordered(self, parent, bg, border=BORDER):
+        """1px-'border' via an outer(border)+inner(bg) frame.  Returns (outer, inner)."""
+        outer = tk.Frame(parent, bg=border)
+        inner = tk.Frame(outer, bg=bg)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+        return outer, inner
+
+    def _section_label(self, parent, text):
+        return tk.Label(parent, text=text.upper(), bg=parent["bg"], fg=T_FAINT,
+                        font=self.F(10, "bold", mono=True), anchor="w")
+
+    def _fixed_cell(self, parent, width, text, fg, *, size=12, anchor="e",
+                    weight="normal", height=22):
+        # Fix the WIDTH (for column alignment) but keep enough HEIGHT for the glyphs:
+        # pack_propagate(False) freezes both dims, so height must be set explicitly or
+        # the frame collapses and clips the text vertically.
+        bg = parent["bg"]
+        f = tk.Frame(parent, bg=bg, width=width, height=height)
+        f.pack_propagate(False)
+        tk.Label(f, text=text, bg=bg, fg=fg, font=self.F(size, weight, mono=True),
+                 anchor=anchor).pack(fill="both", expand=True)
+        return f
+
+    def _col(self, parent, width, height, sep=True):
+        """A fixed-width column cell (breakdown table) with a light grey vertical
+        rule on its left edge, packed to the right.  Returns the cell frame."""
+        f = tk.Frame(parent, bg=parent["bg"], width=width, height=height)
+        f.pack_propagate(False)
+        f.pack(side="right", fill="y")
+        if sep:
+            tk.Frame(f, bg=SEP, width=1).pack(side="left", fill="y")
+        return f
+
+    def _num_cell(self, parent, width, height, text, fg, *, size=10):
+        """A right-aligned numeric cell with a left rule and margin on both sides."""
+        f = self._col(parent, width, height)
+        tk.Label(f, text=text, bg=parent["bg"], fg=fg, font=self.F(size, mono=True),
+                 anchor="e").pack(side="right", fill="both", expand=True, padx=(8, 11))
+        return f
+
+    def _bar(self, parent, headroom):
+        """Headroom bar: dB below the 0 dBTP playback ceiling → width + traffic color."""
+        bg = parent["bg"]
+        w, h = 80, 6
+        c = tk.Canvas(parent, width=w, height=h, bg=bg, highlightthickness=0, bd=0)
+        c.create_rectangle(0, 0, w, h, fill=BORDER, outline="")
+        if headroom is not None:
+            frac = min(1.0, max(0.07, headroom / 6.0)) if headroom > 0 else 0.07
+            col = GREEN if headroom >= 3 else (AMBER_BAR if headroom >= 1.5 else RED)
+            c.create_rectangle(0, 0, max(3, int(w * frac)), h, fill=col, outline="")
+        return c
+
+    def _round_button(self, parent, text, command, *, font, radius=8,
+                      fill=RAIL, border=BORDER, fg=T_SEC2, hover_fill=None, hover_fg=None,
+                      disabled_border="#1a1c21", disabled_fg=T_DISABLED,
+                      pad_x=16, pad_y=9, min_width=0):
+        """A flat, rounded-corner button drawn on a canvas (Tk's native buttons
+        can't do rounded corners).  Redraws to its actual size, so it may be
+        packed with fill='x'.  The returned canvas gains .set_text/.set_enabled."""
+        import tkinter.font as tkfont
+        fo = tkfont.Font(root=parent, family=font[0], size=font[1],
+                         weight=(font[2] if len(font) > 2 else "normal"))
+        w0 = max(min_width, fo.measure(text) + 2 * pad_x)
+        h0 = fo.metrics("linespace") + 2 * pad_y
+        c = tk.Canvas(parent, width=w0, height=h0, bg=parent["bg"],
+                      highlightthickness=0, bd=0, cursor="hand2")
+        st = {"text": text, "enabled": True, "hover": False}
+        hf, hg = hover_fill or fill, hover_fg or fg
+
+        def draw():
+            c.delete("all")
+            w, h = (c.winfo_width() or w0), (c.winfo_height() or h0)
+            if not st["enabled"]:
+                f, b, t = fill, disabled_border, disabled_fg
+            elif st["hover"]:
+                f, b, t = hf, border, hg
+            else:
+                f, b, t = fill, border, fg
+            _round_rect(c, 1, 1, w - 1, h - 1, radius, fill=f, outline=b, width=1)
+            c.create_text(w // 2, h // 2, text=st["text"], fill=t, font=font)
+
+        c.bind("<Button-1>", lambda e: (st["enabled"] and command) and command())
+        c.bind("<Enter>", lambda e: (st.update(hover=True), draw()))
+        c.bind("<Leave>", lambda e: (st.update(hover=False), draw()))
+        c.bind("<Configure>", lambda e: draw())
+        c.set_text = lambda t: (st.update(text=t), draw())
+        c.set_enabled = lambda on: (st.update(enabled=on),
+                                    c.config(cursor="hand2" if on else "arrow"), draw())
+        draw()
+        return c
+
+    def _checkbox(self, parent, checked, command, size=17):
+        """A small rounded checkbox (canvas).  command(is_on) fires on toggle.
+        The returned canvas gains .set_checked(on) and .redraw() (redraw picks up
+        the current canvas bg, so it survives row selection re-tinting)."""
+        c = tk.Canvas(parent, width=size, height=size, bg=parent["bg"],
+                      highlightthickness=0, bd=0, cursor="hand2")
+        st = {"on": bool(checked)}
+
+        def draw():
+            c.delete("all")
+            if st["on"]:
+                _round_rect(c, 1, 1, size - 1, size - 1, 4, fill="#153027",
+                            outline=GREEN, width=1)
+                c.create_line(4, size // 2, size // 2 - 1, size - 5, fill=GREEN, width=2)
+                c.create_line(size // 2 - 1, size - 5, size - 4, 4, fill=GREEN, width=2)
+            else:
+                _round_rect(c, 1, 1, size - 1, size - 1, 4, fill=c["bg"],
+                            outline=BORDER, width=1)
+
+        def toggle(_e):
+            st["on"] = not st["on"]
+            draw()
+            command(st["on"])
+
+        c.bind("<Button-1>", toggle)
+        c.redraw = draw
+        c.set_checked = lambda on: (st.update(on=on), draw())
+        draw()
+        return c
+
+    def _icon_button(self, parent, glyph, command, *, fg=T_FAINT, hover_fg=RED_VAL,
+                     size=20, font=None):
+        """A borderless glyph button (e.g. a row's remove ✕)."""
+        c = tk.Canvas(parent, width=size, height=size, bg=parent["bg"],
+                      highlightthickness=0, bd=0, cursor="hand2")
+        st = {"hover": False}
+        fnt = font or self.F(13)
+
+        def draw():
+            c.delete("all")
+            c.create_text(size // 2, size // 2, text=glyph,
+                          fill=(hover_fg if st["hover"] else fg), font=fnt)
+
+        c.bind("<Button-1>", lambda e: command())
+        c.bind("<Enter>", lambda e: (st.update(hover=True), draw()))
+        c.bind("<Leave>", lambda e: (st.update(hover=False), draw()))
+        c.redraw = draw
+        draw()
+        return c
+
+    def _attach_tooltip(self, widget, text, *, only_if_truncated=True):
+        """Show a small dark tooltip with `text` while hovering `widget`.  When
+        only_if_truncated, it appears only if the widget's text doesn't fully fit
+        (so full filenames show on hover without redundant tips on short names)."""
+        st = {"win": None, "job": None}
+
+        def show():
+            st["job"] = None
+            if st["win"] or not text:
+                return
+            if only_if_truncated and widget.winfo_reqwidth() <= widget.winfo_width():
+                return
+            win = tk.Toplevel(widget)
+            win.wm_overrideredirect(True)
+            try:
+                win.wm_attributes("-topmost", True)
+            except tk.TclError:
+                pass
+            win.wm_geometry(f"+{widget.winfo_pointerx() + 14}+{widget.winfo_pointery() + 18}")
+            win.configure(bg=BORDER)
+            tk.Label(win, text=text, bg=CARD2, fg=T_PRIMARY2, font=self.F(11),
+                     justify="left", padx=9, pady=5).pack(padx=1, pady=1)
+            st["win"] = win
+
+        def hide(_e=None):
+            if st["job"]:
+                widget.after_cancel(st["job"])
+                st["job"] = None
+            if st["win"]:
+                st["win"].destroy()
+                st["win"] = None
+
+        widget.bind("<Enter>", lambda e: st.update(job=widget.after(400, show)), add="+")
+        widget.bind("<Leave>", hide, add="+")
+        widget.bind("<Destroy>", hide, add="+")
 
     # ------------------------------------------------------------------- layout
     def _build_ui(self):
+        self.root.configure(bg=DESK)
         main = tk.Frame(self.root, bg=BG)
-        main.pack(fill="both", expand=True, padx=12, pady=12)
+        main.pack(fill="both", expand=True)
 
-        # =========================== LEFT: controls, meters, files ===========
-        left = tk.Frame(main, bg=BG, width=440)
-        left.pack(side="left", fill="y")
-        left.pack_propagate(False)   # keep the fixed sidebar width
+        # =========================== LEFT RAIL ===============================
+        railwrap = tk.Frame(main, bg=RAIL, width=452)
+        railwrap.pack(side="left", fill="y")
+        railwrap.pack_propagate(False)
+        tk.Frame(main, bg=BORDER2, width=1).pack(side="left", fill="y")   # rail edge
+        left = tk.Frame(railwrap, bg=RAIL)
+        left.pack(fill="both", expand=True, padx=24, pady=22)
 
-        tk.Label(left, text="Streaming Conversion Test", bg=BG, fg=FG,
-                 font=("Helvetica", 16, "bold"), anchor="w").pack(fill="x")
+        # 1) Brand block
+        tk.Label(left, text="Streaming Conversion Test", bg=RAIL, fg=T_PRIMARY,
+                 font=self.F(21, "bold"), anchor="w").pack(fill="x")
         tk.Label(left, text="True-peak overshoot & loudness, per service",
-                 bg=BG, fg=MUTED, font=("Helvetica", 10), anchor="w").pack(fill="x")
+                 bg=RAIL, fg=T_SEC2, font=self.F(13), anchor="w").pack(fill="x", pady=(2, 0))
         tk.Label(left, text="Spotify · Apple · YouTube · Amazon · Tidal · Deezer · SoundCloud",
-                 bg=BG, fg=MUTED, font=("Helvetica", 9), anchor="w",
-                 wraplength=420, justify="left").pack(fill="x", pady=(0, 6))
+                 bg=RAIL, fg=T_FAINT, font=self.F(11), anchor="w",
+                 wraplength=404, justify="left").pack(fill="x", pady=(3, 0))
 
-        self.status = tk.Label(left, bg=BG, anchor="w", font=("Helvetica", 9),
-                               wraplength=420, justify="left")
-        self.status.pack(fill="x")
+        # 2) ffmpeg status (dot + mono text)
+        self.status = tk.Label(left, bg=RAIL, anchor="w", font=self.F(12, mono=True),
+                               wraplength=404, justify="left")
+        self.status.pack(fill="x", pady=(14, 0))
         self._refresh_ffmpeg_status()
 
-        self.drop = tk.Label(
-            left,
-            text=("⬇  Drop master files here"
-                  if _HAS_DND else "\U0001f4c1  Click to add master files"),
-            bg=CARD, fg=FG, font=("Helvetica", 12, "bold"),
-            height=2, cursor="hand2", relief="flat", bd=0)
-        self.drop.pack(fill="x", pady=(8, 2), ipady=12)
+        # 3) Drop zone (dashed canvas)
+        self.drop = tk.Canvas(left, height=86, bg=RAIL, highlightthickness=0, bd=0,
+                              cursor="hand2")
+        self.drop.pack(fill="x", pady=(14, 0))
+        self.drop.bind("<Configure>", lambda e: self._paint_drop())
         self.drop.bind("<Button-1>", lambda e: self.add_files())
         if _HAS_DND:
             self.drop.drop_target_register(DND_FILES)
             self.drop.dnd_bind("<<Drop>>", self._on_drop)
-        tk.Label(left,
-                 text=("Drag & drop  ·  .wav .aiff .flac  ·  folders scanned recursively"
-                       if _HAS_DND else
-                       "Click to add  ·  .wav .aiff .flac  ·  folders scanned recursively"),
-                 bg=BG, fg=MUTED, font=("Helvetica", 8), anchor="w").pack(fill="x")
 
-        btns = tk.Frame(left, bg=BG)
-        btns.pack(fill="x", pady=(8, 4))
-        self._button(btns, "Add files…", self.add_files, primary=True).pack(side="left")
-        self._button(btns, "Clear", self.clear).pack(side="left", padx=6)
-        self.report_btn = self._button(btns, "Save report…", self.save_report)
-        self.report_btn.pack(side="right")
+        # 4) Action buttons
+        btns = tk.Frame(left, bg=RAIL)
+        btns.pack(fill="x", pady=(14, 0))
+        self.add_btn = self._round_button(
+            btns, "Add files…", self.add_files, font=self.F(13, "bold"), min_width=150,
+            fill="#122723", border="#1b503e", fg=GREEN_TXT,
+            hover_fill="#173a2e", hover_fg="#8fe6c0")
+        self.add_btn.pack(side="left", fill="x", expand=True)
+        self.clear_btn = self._round_button(
+            btns, "Clear", self.clear, font=self.F(13),
+            fill=RAIL, border=BORDER, fg=T_SEC2, hover_fill=CARD2, hover_fg=T_PRIMARY2)
+        self.clear_btn.pack(side="left", padx=(8, 0))
+        self.report_btn = self._round_button(
+            btns, "Report", self.save_report, font=self.F(13),
+            fill=RAIL, border=BORDER, fg=T_SEC2, hover_fill=CARD2, hover_fg=T_PRIMARY2)
+        self.report_btn.pack(side="left", padx=(8, 0))
+        self._set_buttons_enabled(False)
 
-        self.progress = ttk.Progressbar(left, mode="determinate")
-        self.progress.pack(fill="x", pady=(4, 2))
-        self.prog_label = tk.Label(left, text="Ready.", bg=BG, fg=MUTED,
-                                   anchor="w", font=("Helvetica", 9))
-        self.prog_label.pack(fill="x")
+        # 5) Progress row
+        prow = tk.Frame(left, bg=RAIL)
+        prow.pack(fill="x", pady=(14, 0))
+        self.progress = ttk.Progressbar(prow, mode="determinate",
+                                        style="Green.Horizontal.TProgressbar")
+        self.progress.pack(side="left", fill="x", expand=True)
+        self.prog_label = tk.Label(prow, text="Ready", bg=RAIL, fg=T_SEC2,
+                                   anchor="e", font=self.F(12, mono=True))
+        self.prog_label.pack(side="left", padx=(10, 0))
 
-        # Master meters for the selected file — pinned to the bottom.
-        meters = tk.Frame(left, bg=BG)
-        meters.pack(side="bottom", fill="x", pady=(8, 0))
-        tk.Label(meters, text="MASTER METERS (selected file)", bg=BG, fg=MUTED,
-                 font=("Helvetica", 9, "bold"), anchor="w").pack(fill="x")
-        self.summary = tk.Label(meters, text="", bg=CARD, fg=FG, justify="left",
-                                anchor="w", font=("Menlo", 10), padx=10, pady=8)
-        self.summary.pack(fill="x")
+        # 7) Master meters (pinned to the bottom of the rail)
+        mwrap = tk.Frame(left, bg=RAIL)
+        mwrap.pack(side="bottom", fill="x", pady=(16, 0))
+        self._section_label(mwrap, "Master meters · selected file").pack(fill="x")
+        mcard_outer, self.meters_card = self._bordered(mwrap, CARD)
+        mcard_outer.pack(fill="x", pady=(6, 0))
+        self._clear_meters()
 
-        # Files list fills the middle of the sidebar.
-        tk.Label(left, text="FILES", bg=BG, fg=MUTED,
-                 font=("Helvetica", 9, "bold"), anchor="w").pack(fill="x", pady=(8, 0))
-        cols = ("lufs", "tp", "verdict")
-        self.tree = ttk.Treeview(left, columns=cols, show="tree headings")
-        self.tree.heading("#0", text="File")
-        self.tree.column("#0", width=190, anchor="w")
-        for cid, text, w in (("lufs", "LUFS", 66), ("tp", "True pk", 66),
-                             ("verdict", "Verdict", 74)):
-            self.tree.heading(cid, text=text)
-            self.tree.column(cid, width=w, anchor="center")
-        self.tree.pack(fill="both", expand=True, pady=(2, 0))
-        for v, col in COLORS.items():
-            self.tree.tag_configure(v, foreground=col)
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        # 6) Files list (fills the middle, scrolls)
+        fhead = tk.Frame(left, bg=RAIL)
+        fhead.pack(fill="x", pady=(16, 0))
+        self._section_label(fhead, "Files").pack(side="left")
+        self.files_count = tk.Label(fhead, text="0 loaded", bg=RAIL, fg=T_FAINT,
+                                    font=self.F(10, mono=True))
+        self.files_count.pack(side="right")
 
-        # =========================== RIGHT: results at full height ===========
+        flist_outer, flist = self._bordered(left, RAIL)
+        flist_outer.pack(fill="both", expand=True, pady=(6, 0))
+        # column header strip
+        fcols = tk.Frame(flist, bg=CARD2)
+        fcols.pack(fill="x")
+        tk.Frame(fcols, bg=CARD2, width=28).pack(side="right")   # over the remove ✕
+        for text, w in (("Verdict", 52), ("Pk", 50), ("LUFS", 60)):
+            self._fixed_cell(fcols, w, text.upper(), T_FAINT, size=9).pack(side="right")
+        tk.Frame(fcols, bg=CARD2, width=26).pack(side="left")    # over the checkbox
+        tk.Label(fcols, text="FILE", bg=CARD2, fg=T_FAINT, font=self.F(9, mono=True),
+                 anchor="w").pack(side="left", fill="x", expand=True, padx=(8, 0))
+        # scrollable body
+        fbody = tk.Frame(flist, bg=RAIL)
+        fbody.pack(fill="both", expand=True)
+        fcanvas = tk.Canvas(fbody, bg=RAIL, highlightthickness=0, bd=0)
+        fsb = ttk.Scrollbar(fbody, orient="vertical", command=fcanvas.yview,
+                            style="Dark.Vertical.TScrollbar")
+        fcanvas.configure(yscrollcommand=fsb.set)
+        fsb.pack(side="right", fill="y")
+        fcanvas.pack(side="left", fill="both", expand=True)
+        self.files_body = tk.Frame(fcanvas, bg=RAIL)
+        self._fwin = fcanvas.create_window((0, 0), window=self.files_body, anchor="nw")
+        self.files_body.bind("<Configure>",
+                             lambda e: fcanvas.configure(scrollregion=fcanvas.bbox("all")))
+        fcanvas.bind("<Configure>", lambda e: fcanvas.itemconfigure(self._fwin, width=e.width))
+        self._bind_wheel(fcanvas)
+
+        # =========================== RIGHT PANEL =============================
         right = tk.Frame(main, bg=BG)
-        right.pack(side="left", fill="both", expand=True, padx=(12, 0))
-        tk.Label(right, text="PER-SERVICE BREAKDOWN", bg=BG, fg=MUTED,
-                 font=("Helvetica", 9, "bold"), anchor="w").pack(fill="x")
-        dcols = ("samp", "tp", "over", "play", "verdict")
-        self.detail = ttk.Treeview(right, columns=dcols, show="tree headings")
-        self.detail.heading("#0", text="Service / tier")
-        self.detail.column("#0", width=228, minwidth=180, anchor="w")
-        for cid, text, w in (("samp", "Sample dBFS", 90), ("tp", "True dBTP", 84),
-                             ("over", "Overshoot", 82), ("play", "At playback", 88),
-                             ("verdict", "Verdict", 64)):
-            self.detail.heading(cid, text=text)
-            self.detail.column(cid, width=w, anchor="center", stretch=False)
-        self.detail.column("verdict", stretch=True)
-        self.detail.pack(fill="both", expand=True, pady=(2, 0))
-        for v, col in COLORS.items():
-            self.detail.tag_configure(v, foreground=col)
-        self.detail.tag_configure("svc", foreground=FG, font=("Helvetica", 10, "bold"))
-        tk.Label(right,
-                 text="Verdict is judged on PRIMARY streaming tiers at PLAYBACK (normalization on). "
-                      "'data-saver' tiers (low-bitrate fallbacks) are informational only and don't\n"
-                      "affect the verdict.   Sample dBFS = digital/codec peak · True dBTP = inter-sample "
-                      "(hardware) peak · unity>0 = exceeds full scale before normalization (safe once "
-                      "turned down).",
-                 bg=BG, fg=MUTED, font=("Helvetica", 9), anchor="w",
-                 justify="left").pack(fill="x", pady=(4, 2))
-        self.advice = tk.Label(right, text="", bg=CARD, fg=FG, anchor="w", justify="left",
-                               font=("Helvetica", 11), padx=12, pady=9, wraplength=740)
-        self.advice.pack(fill="x", pady=(2, 0))
+        right.pack(side="left", fill="both", expand=True, padx=24, pady=22)
 
-    def _button(self, parent, text, cmd, primary=False):
-        return tk.Button(parent, text=text, command=cmd,
-                         bg=ACCENT if primary else CARD,
-                         fg="#08210f" if primary else FG,
-                         activebackground="#1ed760" if primary else "#2a2a2a",
-                         activeforeground=FG, relief="flat", bd=0,
-                         font=("Helvetica", 11, "bold" if primary else "normal"),
-                         padx=14, pady=7, cursor="hand2")
+        # 1) Summary tiles
+        self.tiles = tk.Frame(right, bg=BG)
+        self.tiles.pack(fill="x")
+        for i in range(5):
+            self.tiles.grid_columnconfigure(i, weight=1, uniform="tiles")
+        self._render_tiles(None)
+
+        # 2) Per-service breakdown card
+        bcard_outer, bcard = self._bordered(right, CARD, BORDER)
+        bcard_outer.pack(fill="both", expand=True, pady=(16, 0))
+        bhead = tk.Frame(bcard, bg=CARD)
+        bhead.pack(fill="x", padx=18, pady=(12, 8))
+        tk.Label(bhead, text="PER-SERVICE BREAKDOWN", bg=CARD, fg=T_MUTED,
+                 font=self.F(11, "bold", mono=True), anchor="w").pack(side="left")
+        self.ds_toggle = self._round_button(
+            bhead, "Hide data-saver tiers", self._toggle_datasaver, font=self.F(11, "bold"),
+            radius=7, pad_x=14, pad_y=6, fill="#122723", border="#1b503e", fg=GREEN_TXT,
+            hover_fill="#173a2e", hover_fg="#8fe6c0")
+        self.ds_toggle.pack(side="left", padx=(14, 0))
+        tk.Label(bhead, text="bar = headroom to the 0 dBTP ceiling at playback",
+                 bg=CARD, fg=T_FAINT, font=self.F(11), anchor="e").pack(side="right")
+        # column header strip
+        chead = tk.Frame(bcard, bg=CARD2)
+        chead.pack(fill="x", padx=(0, self._SB_W))
+        for text, w in (("Verdict", 84), ("At playback", 162), ("Overshoot", 92),
+                        ("True dBTP", 100), ("Sample dBFS", 100)):
+            self._num_cell(chead, w, 28, text.upper(), T_FAINT, size=9)
+        tk.Label(chead, text="SERVICE / TIER", bg=CARD2, fg=T_FAINT,
+                 font=self.F(9, mono=True), anchor="w").pack(side="left", fill="x",
+                                                             expand=True, padx=(18, 0))
+        # scrollable body
+        dbody = tk.Frame(bcard, bg=CARD)
+        dbody.pack(fill="both", expand=True)
+        dcanvas = tk.Canvas(dbody, bg=CARD, highlightthickness=0, bd=0)
+        dsb = ttk.Scrollbar(dbody, orient="vertical", command=dcanvas.yview,
+                            style="Dark.Vertical.TScrollbar")
+        dcanvas.configure(yscrollcommand=dsb.set)
+        dsb.pack(side="right", fill="y")
+        dcanvas.pack(side="left", fill="both", expand=True)
+        self.detail_body = tk.Frame(dcanvas, bg=CARD)
+        self._dwin = dcanvas.create_window((0, 0), window=self.detail_body, anchor="nw")
+        self.detail_body.bind("<Configure>",
+                             lambda e: dcanvas.configure(scrollregion=dcanvas.bbox("all")))
+        dcanvas.bind("<Configure>", lambda e: dcanvas.itemconfigure(self._dwin, width=e.width))
+        self._bind_wheel(dcanvas)
+        self._empty_detail()
+
+        # 3) Footnote
+        foot = tk.Label(right,
+                 text="Sample dBFS = digital/codec peak · True dBTP = inter-sample (hardware) peak.  "
+                      "Verdict = true peak at PLAYBACK (normalization on, the default): a loud master "
+                      "whose stream exceeds 0 dBFS at unity but is turned down at playback is a WARN, "
+                      "not a clip.  'data-saver' tiers (low-bitrate fallbacks) are informational and "
+                      "don't affect the verdict.  At playback = decoded TP + this service's gain.",
+                 bg=BG, fg=T_FAINT, font=self.F(11), anchor="w", justify="left")
+        foot.pack(fill="x", pady=(12, 0))
+        self._wrap_on_resize(foot)
+
+        # 4) Advisory callout
+        self.advice_outer, self.advice_card = self._bordered(right, CARD, BORDER)
+        self.advice_outer.pack(fill="x", pady=(12, 0))
+        self.advice_icon = tk.Label(self.advice_card, text="", bg=CARD, fg=AMBER,
+                                    font=self.F(15, "bold"), anchor="nw")
+        self.advice_icon.pack(side="left", padx=(16, 10), pady=14)
+        self.advice = tk.Label(self.advice_card, text="", bg=CARD, fg=AMBER_TXT, anchor="w",
+                               justify="left", font=self.F(12), wraplength=720)
+        self.advice.pack(side="left", fill="x", expand=True, padx=(0, 16), pady=14)
+        self._wrap_on_resize(self.advice)
+        self.advice_outer.pack_forget()
+
+    def _wrap_on_resize(self, label):
+        """Keep a wrapping label's wraplength synced to its own width (no layout loop —
+        the label fills x, so setting wraplength changes only its height)."""
+        label.bind("<Configure>",
+                   lambda e: e.width > 20 and label.config(wraplength=e.width - 6))
+
+    # ------------------------------------------------------------- wheel + drop
+    def _bind_wheel(self, canvas):
+        def scroll(delta):
+            canvas.yview_scroll(-1 if delta > 0 else 1, "units")
+        canvas.bind("<Enter>", lambda e: (
+            canvas.bind_all("<MouseWheel>", lambda ev: scroll(ev.delta)),
+            canvas.bind_all("<Button-4>", lambda ev: scroll(1)),
+            canvas.bind_all("<Button-5>", lambda ev: scroll(-1))))
+        canvas.bind("<Leave>", lambda e: (
+            canvas.unbind_all("<MouseWheel>"),
+            canvas.unbind_all("<Button-4>"),
+            canvas.unbind_all("<Button-5>")))
+
+    def _paint_drop(self):
+        c = self.drop
+        c.delete("all")
+        w = c.winfo_width() or 400
+        h = int(c["height"])
+        _round_rect(c, 1, 1, w - 1, h - 1, 11, outline=DASH, dash=(4, 3), width=1.5)
+        # icon tile
+        _round_rect(c, 18, h // 2 - 19, 56, h // 2 + 19, 9, fill="#132a22", outline="")
+        c.create_text(37, h // 2, text="↓", fill=GREEN, font=self.F(18, "bold"))
+        title = "Drop master files here" if _HAS_DND else "Click to add master files"
+        c.create_text(72, h // 2 - 9, text=title, fill=T_PRIMARY2, anchor="w",
+                      font=self.F(15, "bold"))
+        c.create_text(72, h // 2 + 11,
+                      text=".wav .aiff .flac · folders scanned recursively",
+                      fill=T_FAINT, anchor="w", font=self.F(11))
+
+    def _set_buttons_enabled(self, on):
+        for b in (getattr(self, "clear_btn", None), getattr(self, "report_btn", None)):
+            if b is not None:
+                b.set_enabled(on)
 
     def _refresh_ffmpeg_status(self):
         if self.ffmpeg and not self.missing:
-            self.status.config(text=f"✓ ffmpeg ready: {ffmpeg_version(self.ffmpeg)}", fg=ACCENT)
+            self.status.config(text=f"●  ffmpeg ready · {ffmpeg_version(self.ffmpeg)}", fg=GREEN_TXT)
         elif self.ffmpeg and self.missing:
             self.status.config(
-                text=f"⚠ ffmpeg found but missing {', '.join(self.missing)} — those tiers "
-                     f"show as N/A. Re-run with --setup to enable all codecs.",
-                fg=COLORS[WARN])
+                text=f"●  ffmpeg found, missing {', '.join(self.missing)} — those tiers show N/A. "
+                     f"Re-run with --setup to enable all codecs.",
+                fg=AMBER)
         else:
             self.status.config(
-                text="✗ ffmpeg not found — install it (macOS: brew install ffmpeg), then reopen.",
-                fg=COLORS[FAIL])
+                text="●  ffmpeg not found — install it (macOS: brew install ffmpeg), then reopen.",
+                fg=RED_VAL)
 
     # -------------------------------------------------------------- file intake
     def _on_drop(self, event):
@@ -1571,78 +1962,360 @@ class App:
         self.root.after(80, self._poll)
 
     def _add_result(self, r):
+        r.setdefault("_include", True)
         self.results.append(r)
+        self._add_file_row(r, len(self.results) - 1)
+        self.files_count.config(text=f"{len(self.results)} loaded")
+        self._set_buttons_enabled(True)
+        self._select_file(len(self.results) - 1)
+
+    # -------------------------------------------------------------- files list
+    def _add_file_row(self, r, index):
+        if index > 0:
+            tk.Frame(self.files_body, bg=HAIR, height=1).pack(fill="x")
         m = r["master"]
-        vals = (_g(m["integrated_lufs"]), _g(m["true_peak"]), LABELS[r["overall"]])
-        iid = self.tree.insert("", "end", text=r["name"], values=vals, tags=(r["overall"],))
-        self.tree.selection_set(iid)
-        self.tree.see(iid)
-        self._show_detail(r)
+        row = tk.Frame(self.files_body, bg=RAIL, cursor="hand2")
+        row.pack(fill="x")
+        accent = tk.Frame(row, bg=RAIL, width=2)
+        accent.pack(side="left", fill="y")
+        inner = tk.Frame(row, bg=RAIL)
+        inner.pack(side="left", fill="x", expand=True, padx=(8, 10), pady=8)
+        # include-in-report checkbox (left)
+        chk = self._checkbox(inner, r.get("_include", True),
+                             lambda on, i=index: self._set_include(i, on))
+        chk._no_select = True
+        chk.pack(side="left", padx=(0, 9))
+        # remove ✕ (far right)
+        rm = self._icon_button(inner, "✕", lambda i=index: self._remove_file(i))
+        rm._no_select = True
+        rm.pack(side="right", padx=(8, 0))
+        v = r["overall"]
+        self._fixed_cell(inner, 52, GUI_VLABEL[v], GUI_VCOLOR[v],
+                         size=11, weight="bold").pack(side="right")
+        self._fixed_cell(inner, 50, _g(m["true_peak"]), T_SEC2, size=12).pack(side="right")
+        self._fixed_cell(inner, 60, _g(m["integrated_lufs"]), T_SEC, size=12).pack(side="right")
+        name_lbl = tk.Label(inner, text=r["name"], bg=RAIL, fg=T_PRIMARY2,
+                            font=self.F(13), anchor="w")
+        name_lbl.pack(side="left", fill="x", expand=True)
+        self._attach_tooltip(name_lbl, r["name"])
+        self._bind_click(row, index)
+        self.file_rows.append({"row": row, "accent": accent, "check": chk})
+
+    def _bind_click(self, widget, index):
+        # Skip interactive controls (checkbox, remove ✕) so their own bindings win.
+        if getattr(widget, "_no_select", False):
+            return
+        widget.bind("<Button-1>", lambda e, i=index: self._select_file(i))
+        for c in widget.winfo_children():
+            self._bind_click(c, index)
+
+    def _recolor(self, widget, bg):
+        try:
+            widget.config(bg=bg)
+        except tk.TclError:
+            pass
+        for c in widget.winfo_children():
+            self._recolor(c, bg)
+
+    def _select_file(self, index):
+        if not (0 <= index < len(self.results)):
+            return
+        self.sel_index = index
+        for i, entry in enumerate(self.file_rows):
+            sel = (i == index)
+            self._recolor(entry["row"], SEL_BG if sel else RAIL)
+            entry["accent"].config(bg=GREEN if sel else RAIL)
+            entry["check"].redraw()   # match the checkbox fill to the new row tint
+        self._show_detail(self.results[index])
+
+    def _set_include(self, index, on):
+        if 0 <= index < len(self.results):
+            self.results[index]["_include"] = on
+
+    def _remove_file(self, index):
+        if self.busy or not (0 <= index < len(self.results)):
+            return
+        del self.results[index]
+        if not self.results:
+            self.sel_index = None
+        elif self.sel_index is not None and index < self.sel_index:
+            self.sel_index -= 1
+        elif self.sel_index == index:
+            self.sel_index = min(index, len(self.results) - 1)
+        self._rebuild_file_list()
+
+    def _rebuild_file_list(self):
+        for w in self.files_body.winfo_children():
+            w.destroy()
+        self.file_rows = []
+        for i, r in enumerate(self.results):
+            self._add_file_row(r, i)
+        self.files_count.config(text=f"{len(self.results)} loaded")
+        if self.results:
+            if self.sel_index is None:
+                self.sel_index = 0
+            self._set_buttons_enabled(True)
+            self._select_file(self.sel_index)
+        else:
+            self.sel_index = None
+            self._render_tiles(None)
+            self._empty_detail()
+            self._clear_meters()
+            self.advice_outer.pack_forget()
+            self._set_buttons_enabled(False)
 
     # ----------------------------------------------------------------- detail
-    def _on_select(self, _event):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        idx = self.tree.index(sel[0])
-        if 0 <= idx < len(self.results):
-            self._show_detail(self.results[idx])
-
     def _show_detail(self, r):
-        self.detail.delete(*self.detail.get_children())
+        self._render_tiles(r)
+        self._render_breakdown(r)
+        self._render_meters(r)
+        self._render_advice(r)
+
+    def _tile(self, parent, label, value, sub="", *, border=BORDER, bg=CARD2,
+              label_fg=T_FAINT, value_fg=T_PRIMARY2):
+        outer, inner = self._bordered(parent, bg, border)
+        pad = tk.Frame(inner, bg=bg)
+        pad.pack(fill="both", expand=True, padx=14, pady=12)
+        tk.Label(pad, text=label.upper(), bg=bg, fg=label_fg,
+                 font=self.F(10, "bold", mono=True), anchor="w").pack(fill="x")
+        tk.Label(pad, text=value, bg=bg, fg=value_fg,
+                 font=self.F(22, "bold", mono=True), anchor="w").pack(fill="x", pady=(4, 0))
+        tk.Label(pad, text=sub, bg=bg, fg=T_FAINT, font=self.F(9, mono=True),
+                 anchor="w").pack(fill="x")
+        return outer
+
+    def _summary_stats(self, r):
+        labels = set()
+        warnings = 0
+        tightest = tightest_svc = None      # smallest headroom at playback (primary)
+        worst_os = worst_os_tier = None     # largest overshoot across all tiers (info)
         for s in r["services"]:
-            head = (f"{s['name']}   {s['target']:.0f} LUFS → "
-                    f"{_g(s['played_lufs'],' LUFS')}")
-            parent = self.detail.insert("", "end", text=head,
-                                        values=("", "", "", "", LABELS[s["verdict"]]),
-                                        tags=("svc", s["verdict"]), open=True)
             for t in s["tiers"]:
-                lbl = t["label"] + ("  (lossless)" if t["lossless"]
-                                    else ("" if t.get("primary", True) else "  (data-saver)"))
-                if t.get("encoder_used"):
-                    lbl += f"  · {t['encoder_used']}"
-                dk = tier_display_key(t)
-                self.detail.insert(
-                    parent, "end", text="   " + lbl,
-                    values=(_g(t.get("sample_peak"), " dBFS"),
-                            _g(t["decoded_tp"], " dBTP"),
-                            _g(t["overshoot"], " dB", signed=True),
-                            _g(t["playback_tp"], " dBTP"),
-                            LABELS[dk]),
-                    tags=(dk,))
-        advice = build_advice(r)
-        if advice:
-            level, text = advice
-            icon = {"safe": "✓", "warn": "→", "fail": "✗"}[level]
-            self.advice.config(text=f"{icon}  {text}", fg=COLORS[{"safe": PASS, "warn": WARN, "fail": FAIL}[level]])
+                labels.add(t["label"])
+                if t.get("primary", True) and t["verdict"] == WARN:
+                    warnings += 1
+                if t.get("primary", True) and t["playback_tp"] is not None:
+                    head = -t["playback_tp"]
+                    if tightest is None or head < tightest:
+                        tightest, tightest_svc = head, s["name"]
+                if t["overshoot"] is not None and (worst_os is None or t["overshoot"] > worst_os):
+                    worst_os, worst_os_tier = t["overshoot"], t["label"]
+        return dict(services=len(r["services"]), formats=len(labels), warnings=warnings,
+                    tightest=tightest, tightest_svc=tightest_svc,
+                    worst_os=worst_os, worst_os_tier=worst_os_tier)
+
+    def _render_tiles(self, r):
+        for w in self.tiles.winfo_children():
+            w.destroy()
+        if r is None:
+            tiles = [(l, "—", "", BORDER, CARD2, T_FAINT, T_SEC2)
+                     for l in ("Services", "Formats", "Warnings", "Tightest", "Worst OS")]
         else:
-            self.advice.config(text="")
+            st = self._summary_stats(r)
+            tiles = [("Services", str(st["services"]), "", BORDER, CARD2, T_FAINT, T_PRIMARY2),
+                     ("Formats", str(st["formats"]), "", BORDER, CARD2, T_FAINT, T_PRIMARY2)]
+            if st["warnings"] > 0:
+                tiles.append(("Warnings", str(st["warnings"]), "",
+                              "#4a3a20", "#211d15", AMBER_MUT, AMBER))
+            else:
+                tiles.append(("Warnings", "0", "", BORDER, CARD2, T_FAINT, GREEN))
+            if st["tightest"] is not None:
+                h = st["tightest"]
+                col = GREEN if h >= 3 else (AMBER if h >= 1.5 else RED_VAL)
+                bd = "#194537" if h >= 3 else ("#4a3a20" if h >= 1.5 else "#4a2426")
+                bg = "#12201d" if h >= 3 else ("#211d15" if h >= 1.5 else "#20161a")
+                lf = GREEN if h >= 3 else (AMBER_MUT if h >= 1.5 else RED_MUT)
+                tiles.append(("Tightest", f"{-h:+.2f}", f"dBTP · {st['tightest_svc']}",
+                              bd, bg, lf, col))
+            else:
+                tiles.append(("Tightest", "—", "", BORDER, CARD2, T_FAINT, T_SEC2))
+            if st["worst_os"] is not None:
+                vf = AMBER if st["worst_os"] > 0 else GREEN
+                tiles.append(("Worst OS", f"{st['worst_os']:+.2f}",
+                              f"dB · {st['worst_os_tier']}", BORDER, CARD2, T_FAINT, vf))
+            else:
+                tiles.append(("Worst OS", "—", "", BORDER, CARD2, T_FAINT, T_SEC2))
+        for i, (l, v, sub, bd, bg, lf, vf) in enumerate(tiles):
+            self._tile(self.tiles, l, v, sub, border=bd, bg=bg, label_fg=lf,
+                       value_fg=vf).grid(row=0, column=i, sticky="nsew",
+                                         padx=(0 if i == 0 else 6, 0 if i == 4 else 6))
+
+    def _render_breakdown(self, r):
+        body = self.detail_body
+        for w in body.winfo_children():
+            w.destroy()
+        for s in r["services"]:
+            tiers = [t for t in s["tiers"]
+                     if t.get("primary", True) or not self.hide_datasaver]
+            self._service_group(body, s)
+            for i, t in enumerate(tiers):
+                self._tier_row(body, t, first=(i == 0))
+
+    def _toggle_datasaver(self):
+        self.hide_datasaver = not self.hide_datasaver
+        self.ds_toggle.set_text(
+            "Show data-saver tiers" if self.hide_datasaver else "Hide data-saver tiers")
+        if self.sel_index is not None and 0 <= self.sel_index < len(self.results):
+            self._render_breakdown(self.results[self.sel_index])
+
+    def _service_group(self, parent, s):
+        row = tk.Frame(parent, bg=GRP)
+        row.pack(fill="x")
+        inner = tk.Frame(row, bg=GRP)
+        inner.pack(fill="x", padx=18, pady=6)
+        v = s["verdict"]
+        tk.Label(inner, text=GUI_VLABEL[v], bg=GRP, fg=GUI_VCOLOR[v],
+                 font=self.F(10, "bold", mono=True)).pack(side="right", padx=(0, self._SB_W))
+        tk.Label(inner, text="●", bg=GRP, fg=GUI_VCOLOR[v], font=self.F(9)).pack(side="left")
+        tk.Label(inner, text=s["name"], bg=GRP, fg=T_PRIMARY,
+                 font=self.F(13, "bold")).pack(side="left", padx=(8, 10))
+        gain = s["gain"]
+        if gain is None or abs(gain) < 0.05:
+            move = "no change"
+        else:
+            move = f"turned {'down' if gain < 0 else 'up'} {abs(gain):.1f} dB"
+        tk.Label(inner,
+                 text=f"normalizes to {s['target']:.0f} LUFS · {move} → plays at "
+                      f"{_g(s['played_lufs'], ' LUFS')}",
+                 bg=GRP, fg=T_MUTED, font=self.F(10, mono=True)).pack(side="left")
+
+    def _tier_row(self, parent, t, first=False):
+        tk.Frame(parent, bg=HAIR, height=1).pack(fill="x")
+        row = tk.Frame(parent, bg=CARD, height=self.ROWH)
+        row.pack(fill="x")
+        row.pack_propagate(False)   # freeze height so the column rules span the full row
+        dk = tier_display_key(t)
+        info = (dk == INFO)
+
+        vcell = self._col(row, 84, self.ROWH)
+        if info:
+            tk.Label(vcell, text="info", bg=CARD, fg=T_FAINT,
+                     font=self.F(9, mono=True), anchor="e").pack(side="right", padx=(0, 16))
+        else:
+            v = t["verdict"]
+            tk.Label(vcell, text=GUI_VLABEL[v], bg=GUI_PILLBG[v], fg=GUI_VCOLOR[v],
+                     font=self.F(9, "bold", mono=True), padx=7, pady=2).pack(
+                         side="right", padx=(0, 16))
+
+        pcell = self._col(row, 162, self.ROWH)
+        tk.Label(pcell, text=_g(t["playback_tp"]), bg=CARD, fg=T_SEC,
+                 font=self.F(10, mono=True), width=7, anchor="e").pack(side="right", padx=(0, 11))
+        head = (-t["playback_tp"]) if t["playback_tp"] is not None else None
+        self._bar(pcell, head).pack(side="right", padx=(8, 6))
+
+        dtp, sp = t["decoded_tp"], t.get("sample_peak")
+        self._num_cell(row, 92, self.ROWH, _g(t["overshoot"], " dB", signed=True), T_SEC2)
+        self._num_cell(row, 100, self.ROWH, _g(dtp, " dBTP"),
+                       AMBER if (dtp is not None and dtp >= 0) else T_SEC2)
+        self._num_cell(row, 100, self.ROWH, _g(sp, " dBFS"),
+                       AMBER if (sp is not None and sp >= 0) else T_SEC2)
+
+        note = (" · lossless" if t["lossless"]
+                else (f" · {t['encoder_used']}" if t.get("encoder_used")
+                      else (" · data-saver" if not t.get("primary", True) else "")))
+        nf = tk.Frame(row, bg=CARD, height=self.ROWH)
+        nf.pack(side="left", fill="both", expand=True)
+        ninner = tk.Frame(nf, bg=CARD)
+        ninner.pack(side="left", fill="both", expand=True, padx=(18, 8))
+        tk.Label(ninner, text=t["label"], bg=CARD, fg=(T_FAINT if info else T_SEC),
+                 font=self.F(12)).pack(side="left")
+        if note:
+            tk.Label(ninner, text=note, bg=CARD, fg=T_FAINT, font=self.F(10)).pack(side="left")
+
+    def _render_meters(self, r):
+        card = self.meters_card
+        for w in card.winfo_children():
+            w.destroy()
+        pad = tk.Frame(card, bg=CARD)
+        pad.pack(fill="x", padx=14, pady=12)
         m = r["master"]
-        self.summary.config(
-            text=(f"Integrated   {_g(m['integrated_lufs'],' LUFS')}\n"
-                  f"True peak    {_g(m['true_peak'],' dBTP')}\n"
-                  f"Sample peak  {_g(m['sample_peak'],' dBFS')}\n"
-                  f"Inter-sample {_g(r['inter_sample_margin'],' dB',signed=True)}\n"
-                  f"LRA          {_g(m['lra'],' LU')}\n"
-                  f"Worst OS     {_g(r['worst_overshoot'],' dB',signed=True)}\n"
-                  f"Clips @ play {'YES' if r['any_clip'] else 'no'}    "
-                  f"Unity >0 {'YES' if r.get('any_unity_clip') else 'no'}"))
+        wos = r["worst_overshoot"]
+        rows = [("Integrated", _g(m["integrated_lufs"], " LUFS"), T_PRIMARY2),
+                ("True peak", _g(m["true_peak"], " dBTP"), T_PRIMARY2),
+                ("Sample peak", _g(m["sample_peak"], " dBFS"), T_PRIMARY2),
+                ("Inter-sample", _g(r["inter_sample_margin"], " dB", signed=True), T_PRIMARY2),
+                ("LRA", _g(m["lra"], " LU"), T_PRIMARY2),
+                ("Worst OS", _g(wos, " dB", signed=True),
+                 AMBER if (wos is not None and wos > 0) else T_PRIMARY2)]
+        for label, val, vf in rows:
+            rr = tk.Frame(pad, bg=CARD)
+            rr.pack(fill="x", pady=1)
+            tk.Label(rr, text=label, bg=CARD, fg=T_MUTED,
+                     font=self.F(12, mono=True)).pack(side="left")
+            tk.Label(rr, text=val, bg=CARD, fg=vf,
+                     font=self.F(12, mono=True)).pack(side="right")
+        tk.Frame(pad, bg=BORDER, height=1).pack(fill="x", pady=8)
+        stat = tk.Frame(pad, bg=CARD)
+        stat.pack(fill="x")
+        clip, unity = r["any_clip"], r.get("any_unity_clip")
+        tk.Label(stat, text="Clips @ play ", bg=CARD, fg=T_MUTED,
+                 font=self.F(12, mono=True)).pack(side="left")
+        tk.Label(stat, text="YES" if clip else "no", bg=CARD,
+                 fg=RED_VAL if clip else GREEN,
+                 font=self.F(12, "bold", mono=True)).pack(side="left")
+        tk.Label(stat, text="    ·    Unity >0 ", bg=CARD, fg=T_MUTED,
+                 font=self.F(12, mono=True)).pack(side="left")
+        tk.Label(stat, text="YES" if unity else "no", bg=CARD,
+                 fg=AMBER if unity else GREEN,
+                 font=self.F(12, "bold", mono=True)).pack(side="left")
+
+    def _clear_meters(self):
+        for w in self.meters_card.winfo_children():
+            w.destroy()
+        tk.Label(self.meters_card, text="Select a file to see its master meters.",
+                 bg=CARD, fg=T_FAINT, font=self.F(12), anchor="w").pack(
+                     fill="x", padx=14, pady=16)
+
+    def _render_advice(self, r):
+        advice = build_advice(r)
+        if not advice:
+            self.advice_outer.pack_forget()
+            return
+        level, text = advice
+        icon = {"safe": "✓", "warn": "→", "fail": "✗"}[level]
+        col = {"safe": GREEN, "warn": AMBER, "fail": RED_VAL}[level]
+        border = {"safe": "#25463a", "warn": "#4a3a20", "fail": "#4a2426"}[level]
+        txt = {"safe": GREEN_TXT, "warn": AMBER_TXT, "fail": "#e6a39d"}[level]
+        self.advice_outer.config(bg=border)
+        self.advice_icon.config(text=icon, fg=col)
+        self.advice.config(text=text, fg=txt)
+        self.advice_outer.pack(fill="x", pady=(12, 0))
+
+    def _empty_detail(self):
+        for w in self.detail_body.winfo_children():
+            w.destroy()
+        tk.Label(self.detail_body, text="Drop a master file to see the per-service breakdown.",
+                 bg=CARD, fg=T_FAINT, font=self.F(13), anchor="w").pack(
+                     fill="x", padx=18, pady=20)
 
     # ------------------------------------------------------------------ actions
     def clear(self):
         if self.busy:
             return
         self.results.clear()
-        self.tree.delete(*self.tree.get_children())
-        self.detail.delete(*self.detail.get_children())
-        self.summary.config(text="")
-        self.advice.config(text="")
+        self.file_rows.clear()
+        self.sel_index = None
+        for w in self.files_body.winfo_children():
+            w.destroy()
+        self.files_count.config(text="0 loaded")
+        self._render_tiles(None)
+        self._empty_detail()
+        self._clear_meters()
+        self.advice_outer.pack_forget()
+        self._set_buttons_enabled(False)
         self.progress.config(value=0)
-        self.prog_label.config(text="Ready.")
+        self.prog_label.config(text="Ready")
 
     def save_report(self):
         if not self.results:
             messagebox.showinfo("Nothing to save", "Analyze some files first.")
+            return
+        included = [r for r in self.results if r.get("_include", True)]
+        if not included:
+            messagebox.showinfo(
+                "Nothing selected",
+                "No files are ticked for the report.\n\nUse the checkbox on each file "
+                "in the list to include it, then save again.")
             return
         path = filedialog.asksaveasfilename(
             title="Save HTML report", defaultextension=".html",
@@ -1650,13 +2323,14 @@ class App:
             filetypes=[("HTML", "*.html")])
         if not path:
             return
-        build_report(self.results, path, ffmpeg_version(self.ffmpeg))
+        build_report(included, path, ffmpeg_version(self.ffmpeg))
         try:
             import webbrowser
             webbrowser.open("file://" + os.path.abspath(path))
         except Exception:
             pass
-        self.prog_label.config(text=f"Report saved: {path}")
+        n = len(included)
+        self.prog_label.config(text=f"Report saved ({n} file{'s' if n != 1 else ''}): {path}")
 
 
 def run_gui(no_install=False):

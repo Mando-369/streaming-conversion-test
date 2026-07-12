@@ -14,8 +14,8 @@ transcode itself.
 **No manual setup.** The whole app is a single Python file
 (`spotify_conversion_test_app.py`); on first launch it installs everything it
 needs into a private per-user folder — no admin rights, no Homebrew/apt, no
-virtual environment, nothing system-wide. On macOS a bundled `run.command`
-launcher lets you **double-click to open** it.
+virtual environment, nothing system-wide. On macOS a bundled
+`double-click-me-to-start.command` launcher lets you **double-click to open** it.
 
 ---
 
@@ -100,16 +100,23 @@ is the reference for the −14 LUFS / −1 dBTP rules:
 ### Verdicts
 
 The verdict reflects the true peak **at playback** — with each service's loudness
-normalization on, which is the default listening case. (A loud master gets turned
-*down* at playback, so its encoded stream can exceed 0 dBFS at unity gain yet be
-perfectly safe for listeners.)
+normalization on, which is the default listening case. It's driven by what actually
+happens to the audio — **clipping**, not distance from a guideline. A master sitting
+above the −1 dBTP recommended headroom but still under 0 dBFS doesn't clip, so it
+isn't a warning: it's a green PASS with an advisory note (*"above recommended
+headroom, but not clipping"*). (A loud master also gets turned *down* at playback, so
+its encoded stream can exceed 0 dBFS at unity gain yet be perfectly safe for
+listeners.)
 
 | | Meaning |
 |---|---|
-| 🟢 **PASS** | Safe at playback and within recommended headroom. |
-| 🟠 **WARN** | Above the recommended ceiling, **or** the encoded stream exceeds 0 dBFS at unity gain (tagged `unity > 0 dBFS`) — audible only if a listener disables normalization, or in a non-normalized/downloaded copy. Common for loud masters. |
+| 🟢 **PASS** | Safe at playback. Includes hot-but-clean masters **above the −1 dBTP recommended headroom that still stay under 0 dBFS** — surfaced as an advisory, not a warning; the −1 dBTP figure is a guideline, not a clip line. |
+| 🟠 **WARN** | The encoded stream exceeds **0 dBFS at unity gain** (tagged `unity > 0 dBFS`) — audible only if a listener disables normalization, or in a non-normalized/downloaded copy. Common for loud masters, which are turned down and play safely. |
 | 🔴 **FAIL** | The master already clips, or a codec clips **at playback** (after normalization) — audible even with normalization on. Mostly affects *quiet* masters lifted upward. |
 | **N/A** | That codec's encoder isn't available in the current ffmpeg build. |
+
+The verdict and recommendation are judged on the **primary tiers only** (see above);
+data-saver tiers are shown but never turn the verdict amber or red.
 
 ---
 
@@ -141,8 +148,9 @@ there's nothing to set up or activate.
 
 ## Running it
 
-**Easiest (macOS) — double-click `run.command`.** Keep it in the same folder as
-`spotify_conversion_test_app.py`. The first time, macOS Gatekeeper may block it —
+**Easiest (macOS) — double-click `double-click-me-to-start.command`.** Keep it in
+the same folder as `spotify_conversion_test_app.py`. The first time, macOS
+Gatekeeper may block it —
 **right-click → Open**, then confirm; after that a normal double-click works. It
 automatically finds a Tk-capable Python and opens the desktop app.
 
@@ -157,9 +165,12 @@ python3 spotify_conversion_test_app.py
 > Homebrew's `python3`) or the python.org installer. Avoid `/usr/bin/python3` for
 > the GUI — its Tk 8.5 crashes.
 
-Pick one or more master files — or a whole folder. Results appear per file with a
-per-service, codec-by-codec breakdown; click **Save HTML report…** for a
-shareable, fully self-contained report.
+Pick one or more master files — or a whole folder. Each file lands in the sidebar
+list with a **checkbox** (include it in the report) and a **✕** (remove it, e.g. to
+swap a wrong take); hover a truncated name to see it in full. Selecting a file shows
+its master meters and a per-service, codec-by-codec breakdown, and a **Hide
+data-saver tiers** toggle collapses the informational low-bitrate rows. Click
+**Report** for a shareable, fully self-contained HTML report of the ticked files.
 
 **Command line (batch / scripting):**
 
@@ -193,15 +204,22 @@ python3 spotify_conversion_test_app.py --help
 ## How to read the output
 
 ```
-=== loud_master.wav  [WARN] ===
-  Master   integrated -10.41 LUFS · true peak -0.56 dBTP · sample -0.60 dBFS · inter-sample +0.04 dB
-  Columns: dec = decoded true peak (unity) · over = codec overshoot · play = true peak after normalization (what listeners hear)
-  Verdict reflects the PLAYBACK peak (normalization on, the default). 'unity>0' = stream exceeds 0 dBFS before normalization.
-  Spotify          -14 LUFS  → plays ~-14.00 LUFS (gain -3.59 dB, down)   [WARN]
-     Ogg Vorbis 96k        dec    1.59 over   +2.15 play   -2.00   WARN  unity>0
-     Ogg Vorbis 320k       dec   -0.31 over   +0.25 play   -3.90   WARN
-     AAC 128k              dec    0.72 over   +1.28 play   -2.87   WARN  · Apple AAC
-     AAC 256k              dec   -0.11 over   +0.45 play   -3.70   WARN  · Apple AAC
+=== Hot_Master.wav  [PASS] ===
+  Master   integrated -0.90 LUFS · true peak -0.54 dBTP · sample -0.54 dBFS · inter-sample +0.00 dB
+  Columns: samp = decoded sample peak (digital clip, dBFS) · dec = decoded true peak (ISP/hardware clip, dBTP)
+           over = codec overshoot · play = true peak after normalization (what listeners hear)
+  Verdict is judged on PRIMARY tiers at the PLAYBACK peak (normalization on). '(data-saver)' tiers are
+  informational only. 'unity>0' = stream exceeds 0 dBFS before normalization.
+  Spotify          -14 LUFS  → plays ~-14.00 LUFS (gain -13.10 dB, down)   [PASS]
+     Ogg Vorbis 160k (data-saver)samp   -0.39 dec   -0.31 over   +0.23 play  -13.41   info
+     Ogg Vorbis 320k         samp   -0.41 dec   -0.40 over   +0.14 play  -13.50   PASS
+     AAC 256k                samp   -0.39 dec   -0.39 over   +0.15 play  -13.49   PASS  · Apple AAC
+  Apple Music      -16 LUFS  → plays ~-16.00 LUFS (gain -15.10 dB, down)   [PASS]
+     AAC 256k                samp   -0.39 dec   -0.39 over   +0.15 play  -15.49   PASS  · Apple AAC
+     ALAC (lossless)         samp   -0.54 dec   -0.54 over   +0.00 play  -15.64   PASS
+  ✓ Above recommended headroom, but not clipping — at -0.54 dBTP this master sits above the
+    −1 dBTP guideline, yet the primary streaming tiers (Ogg Vorbis 320, AAC 256, MP3 320,
+    lossless) all stay under 0 dBFS. Pulling down to −1 dBTP is optional, not required.
 ```
 
 - **dec** — decoded true peak at unity gain. On a *loud* master this can exceed
@@ -213,10 +231,12 @@ python3 spotify_conversion_test_app.py --help
   based on this** (what listeners actually hear with normalization on).
 
 Every result ends with an **actionable recommendation**, computed on *your* file —
-either "✓ Safe — survives conversion even at −0.5 dBTP, no need to pull down to −1"
-or "→ lower your true-peak ceiling to about *X* dBTP" (the exact number that keeps
-the worst codec under 0 dBFS), with the normalization caveat spelled out. That's the
-answer to the "how hot can I master?" question, measured rather than guessed.
+"✓ Safe" when the primary tiers stay under 0 dBFS (including the *"above recommended
+headroom, but not clipping"* case, where a hot master survives intact and pulling
+down to −1 dBTP is optional, not required), or "→ lower your true-peak ceiling to
+about *X* dBTP" (the exact number that keeps the worst primary codec under 0 dBFS)
+when a primary tier would clip at unity. That's the answer to the "how hot can I
+master?" question, measured rather than guessed.
 
 ---
 
