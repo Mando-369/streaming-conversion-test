@@ -49,8 +49,18 @@ then reused across every service that serves it.
 
 ## What it measures (and the spec it references)
 
-Loudness and true peak follow **ITU-R BS.1770** (integrated LUFS + 4×-oversampled
-true peak). Spotify's own guidance,
+Loudness and true peak follow **ITU-R BS.1770-4**. True peak is read from ffmpeg's
+reference `ebur128` meter (4×-oversampled, full precision from its per-frame
+metadata); lossy streams are decoded in 32-bit float so overshoot above 0 dBFS is
+captured, not clipped. For every codec tier the app reports **both** peaks the
+standard distinguishes:
+
+- **Sample peak (dBFS)** — the raw *digital* peak; above 0 dBFS means the decoded
+  stream clips in the playback engine.
+- **True peak (dBTP)** — the *inter-sample* peak; above 0 dBTP means it clips the
+  listener's DAC/hardware.
+
+Spotify's own guidance,
 [*Loudness normalization on Spotify*](https://support.spotify.com/us/artists/article/loudness-normalization/),
 is the reference for the −14 LUFS / −1 dBTP rules:
 
@@ -182,13 +192,16 @@ python3 spotify_conversion_test_app.py --help
 - **dec** — decoded true peak at unity gain. On a *loud* master this can exceed
   0 dBFS (`unity>0`) yet still be safe at playback, because normalization turns
   the track down.
+- **samp** — the decoded **sample** peak (digital clip, dBFS).
 - **over** — `decoded − master` true peak: how much this codec added.
 - **play** — the true peak **after** the service's normalization; the **verdict is
   based on this** (what listeners actually hear with normalization on).
 
-The takeaway is the usual mastering guidance, measured on *your* file: to be safe
-across every service and setting (including listeners with normalization off), keep
-the master's true peak at −1 dBTP, or −2 dBTP if you're hotter than −14 LUFS.
+Every result ends with an **actionable recommendation**, computed on *your* file —
+either "✓ Safe — survives conversion even at −0.5 dBTP, no need to pull down to −1"
+or "→ lower your true-peak ceiling to about *X* dBTP" (the exact number that keeps
+the worst codec under 0 dBFS), with the normalization caveat spelled out. That's the
+answer to the "how hot can I master?" question, measured rather than guessed.
 
 ---
 
@@ -196,7 +209,7 @@ the master's true peak at −1 dBTP, or −2 dBTP if you're hotter than −14 LU
 
 | Claim | Confidence |
 |---|---|
-| Loudness / normalization math (LUFS, gain, "plays at") | 🟢 High — deterministic BS.1770 |
+| Loudness & true peak | 🟢 High — ITU-R BS.1770-4 via ffmpeg's `ebur128` (float decode, 4× oversampled) |
 | Overshoot direction & clipping flags | 🟢 High — a real encode→decode round-trip |
 | Relative comparisons (codec vs codec, master vs master, lossless = clean) | 🟢 High |
 | **AAC & MP3 on macOS** | 🟢 High — real encoders, validated within 0.2 dB vs iZotope Insight |

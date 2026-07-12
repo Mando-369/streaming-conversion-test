@@ -66,13 +66,14 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 import argparse
 import datetime
 import html
 import importlib
 import json as jsonmod
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -489,11 +490,16 @@ def _to_float(value):
 
 
 def measure(ffmpeg, path):
-    """Measure a file.
+    """Measure a file per ITU-R BS.1770.
 
     Returns a dict with:
       integrated_lufs, true_peak (dBTP), lra, threshold, sample_peak (dBFS).
     Any value that cannot be measured (e.g. silence) is None.
+
+    True peak comes from ffmpeg's `ebur128` filter (the reference BS.1770-4
+    true-peak meter, 4x oversampled) — read from its per-frame metadata for full
+    precision, not the 0.1 dB-rounded summary.  Integrated loudness / LRA come from
+    the same pass's summary; the raw sample peak comes from `astats`.
     """
     result = {
         "integrated_lufs": None,
@@ -503,21 +509,27 @@ def measure(ffmpeg, path):
         "sample_peak": None,
     }
 
-    # loudnorm analysis -> JSON block on stderr with input_i / input_tp / input_lra.
+    # ebur128: per-frame true-peak metadata on stdout, summary (I / LRA) on stderr.
     r = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
-              "-af", "loudnorm=print_format=json", "-f", "null", "-"])
-    match = re.search(r"\{[^{}]+\}", r.stderr, re.S)
-    if match:
-        try:
-            data = jsonmod.loads(match.group(0))
-            result["integrated_lufs"] = _to_float(data.get("input_i"))
-            result["true_peak"] = _to_float(data.get("input_tp"))
-            result["lra"] = _to_float(data.get("input_lra"))
-            result["threshold"] = _to_float(data.get("input_thresh"))
-        except jsonmod.JSONDecodeError:
-            pass
+              "-af", "ebur128=peak=true:metadata=1,"
+                     "ametadata=mode=print:key=lavfi.r128.true_peak:file=-",
+              "-f", "null", "-"])
+    peaks = [float(x) for x in re.findall(r"lavfi\.r128\.true_peak=([0-9.]+)", r.stdout)]
+    if peaks:
+        mx = max(peaks)
+        result["true_peak"] = (20.0 * math.log10(mx)) if mx > 0 else None
+    summary = r.stderr.rsplit("Summary:", 1)[-1]
+    mi = re.search(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
+    if mi:
+        result["integrated_lufs"] = _to_float(mi.group(1))
+    ml = re.search(r"\bLRA:\s*(-?\d+(?:\.\d+)?)\s*LU", summary)
+    if ml:
+        result["lra"] = _to_float(ml.group(1))
+    mt = re.search(r"\bThreshold:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
+    if mt:
+        result["threshold"] = _to_float(mt.group(1))
 
-    # astats -> overall sample peak.
+    # astats -> overall raw sample peak (the "digital" peak, dBFS).
     r2 = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
                "-af", "astats=measure_perchannel=none:measure_overall=Peak_level",
                "-f", "null", "-"])
@@ -623,8 +635,8 @@ def _run_transcode(ffmpeg, path, tkey, enc_set, strict, workdir):
     """
     ts = TRANSCODE_BY_KEY[tkey]
     entry = {"key": tkey, "label": ts.label, "codec": ts.codec,
-             "bitrate": ts.bitrate, "decoded_tp": None, "decoded_lufs": None,
-             "overshoot": None, "loudness_drift": None,
+             "bitrate": ts.bitrate, "decoded_tp": None, "decoded_sample_peak": None,
+             "decoded_lufs": None, "overshoot": None, "loudness_drift": None,
              "unity_verdict": PASS, "error": None, "unavailable": False,
              "encoder_used": None}
 
@@ -649,6 +661,7 @@ def _run_transcode(ffmpeg, path, tkey, enc_set, strict, workdir):
             extra = ["-aac_at_mode", "cvbr"] if codec == "aac_at" else None
             m = transcode_measure(ffmpeg, path, codec, ts.bitrate, ts.ext, workdir, extra_args=extra)
         entry["decoded_tp"] = m["true_peak"]
+        entry["decoded_sample_peak"] = m["sample_peak"]
         entry["decoded_lufs"] = m["integrated_lufs"]
         entry["unity_verdict"] = evaluate_peak(m["true_peak"], TP_CEILING_NORMAL)
     except Exception as exc:  # keep going even if one codec fails
@@ -723,7 +736,8 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
                 v = evaluate_tier(dtp, ptp)
                 unity_clip = dtp is not None and dtp > CLIP_CEILING
                 tiers.append({"key": tkey, "label": LOSSLESS[tkey], "context": ctx,
-                              "lossless": True, "decoded_tp": dtp, "overshoot": over,
+                              "lossless": True, "decoded_tp": dtp,
+                              "sample_peak": master["sample_peak"], "overshoot": over,
                               "playback_tp": ptp, "verdict": v, "error": None,
                               "encoder_used": None, "unity_clip": unity_clip})
             else:
@@ -744,7 +758,8 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
                     if over is not None:
                         overs.append(over)
                 tiers.append({"key": tkey, "label": tr["label"], "context": ctx,
-                              "lossless": False, "decoded_tp": dtp, "overshoot": over,
+                              "lossless": False, "decoded_tp": dtp,
+                              "sample_peak": tr.get("decoded_sample_peak"), "overshoot": over,
                               "playback_tp": ptp, "verdict": v, "error": tr["error"],
                               "encoder_used": tr.get("encoder_used"), "unity_clip": unity_clip})
             if ptp is not None and ptp > CLIP_CEILING:
@@ -784,6 +799,49 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
         "any_unity_clip": any_unity_clip_any,    # stream exceeds 0 dBFS at unity
         "overall": overall,
     }
+
+
+def build_advice(result):
+    """Actionable mastering guidance for one result.
+
+    Returns (level, text) where level is 'safe' | 'warn' | 'fail', or None if
+    there's nothing meaningful to say.  The recommendation is judged at unity gain
+    (the strict "safe in every scenario" test) and notes the normalization caveat.
+    """
+    tp = result["master_true_peak"]
+    if tp is None:
+        return None
+
+    # Worst decoded true peak at unity across the lossy tiers, and which tier.
+    worst_dec, worst_tier = None, None
+    for s in result["services"]:
+        for t in s["tiers"]:
+            if t["lossless"] or t["decoded_tp"] is None:
+                continue
+            if worst_dec is None or t["decoded_tp"] > worst_dec:
+                worst_dec, worst_tier = t["decoded_tp"], t["label"]
+
+    if tp > CLIP_CEILING:
+        return ("fail",
+                f"Your master already clips — true peak {tp:+.2f} dBTP, above 0 dBFS. "
+                f"Pull its true-peak ceiling below 0 (ideally to −1 dBTP) and re-export before "
+                f"anything else.")
+
+    if worst_dec is not None and worst_dec > CLIP_CEILING:
+        rec = tp - worst_dec  # master ceiling that brings the worst tier down to 0 dBFS
+        return ("warn",
+                f"At unity gain the worst codec ({worst_tier}) reaches {worst_dec:+.2f} dBTP — "
+                f"above 0 dBFS. To keep every delivered stream under 0 dBFS even with "
+                f"normalization OFF, lower your master's true peak to about {rec:.1f} dBTP and "
+                f"re-export. With loudness normalization ON (Spotify/YouTube default) this master "
+                f"is turned down and already plays safely — so this mainly affects un-normalized "
+                f"playback, downloads, and the lowest-bitrate tiers.")
+
+    headroom = f", {abs(worst_dec):.2f} dB of headroom to spare" if worst_dec is not None else ""
+    return ("safe",
+            f"Safe — every codec's decoded stream stays under 0 dBFS{headroom}. This master "
+            f"survives conversion intact even at {tp:+.2f} dBTP; you do NOT need to pull it down "
+            f"to −1 dBTP for these services.")
 
 
 # =============================================================================
@@ -853,6 +911,7 @@ def _service_block(svc):
             f'<tr>'
             f'<td><b>{html.escape(t["label"])}</b>{extra}'
             f'<div class="ctx">{html.escape(t["context"])}</div>{err}</td>'
+            f'<td class="num">{_fmt(t.get("sample_peak"), " dBFS")}</td>'
             f'<td class="num">{_fmt(t["decoded_tp"], " dBTP")}</td>'
             f'<td class="num" style="color:{tvc}"><b>{_signed(t["overshoot"], " dB")}</b></td>'
             f'<td class="num">{_fmt(t["playback_tp"], " dBTP")}</td>'
@@ -873,8 +932,9 @@ def _service_block(svc):
       </div>{note}
       <table>
         <thead><tr>
-          <th>Tier</th><th>Decoded TP</th><th>Overshoot</th>
-          <th>At playback</th><th>Decoded TP (&minus;1 amber / 0 red)</th><th>Verdict</th>
+          <th>Tier</th><th title="digital / codec peak">Sample pk</th>
+          <th title="inter-sample / hardware peak">True peak</th><th>Overshoot</th>
+          <th>At playback</th><th>True peak (&minus;1 amber / 0 red)</th><th>Verdict</th>
         </tr></thead>
         <tbody>{''.join(rows)}</tbody>
       </table>
@@ -916,12 +976,23 @@ def _file_section(r):
     )
     blocks = "\n".join(_service_block(s) for s in r["services"])
 
+    advice = build_advice(r)
+    advice_html = ""
+    if advice:
+        level, text = advice
+        ac = COLORS[{"safe": PASS, "warn": WARN, "fail": FAIL}[level]]
+        icon = {"safe": "&#10003;", "warn": "&rarr;", "fail": "&#10007;"}[level]
+        advice_html = (f'<div class="advice" style="border-color:{ac}">'
+                       f'<span class="aicon" style="color:{ac}">{icon}</span>'
+                       f'{html.escape(text)}</div>')
+
     return f"""
     <section class="file">
       <div class="fhead">
         <h2>{name}</h2>
         <span class="badge" style="background:{badge_color}">{LABELS[verdict]}</span>
       </div>
+      {advice_html}
       <div class="grid">
         <div class="card"><div class="k">Integrated loudness</div>
           <div class="v">{_fmt(m['integrated_lufs'], ' LUFS')}</div>
@@ -982,6 +1053,9 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
     .card .k{font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.4px}
     .card .v{font-size:18px;font-weight:700;margin:2px 0}
     .card .sub{font-size:11px;opacity:.55}
+    .advice{background:#1c1c1c;border-left:4px solid #1db954;border-radius:8px;
+      padding:11px 14px;margin:0 0 14px;font-size:13.5px;line-height:1.5}
+    .advice .aicon{font-weight:700;margin-right:8px}
     .spills{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px}
     .spill{color:#fff;font-weight:700;border-radius:6px;padding:3px 9px;font-size:11px}
     .svc{background:#161616;border:1px solid #242424;border-radius:10px;padding:12px 14px;margin:10px 0}
@@ -1090,12 +1164,12 @@ def print_text(r, color=True):
           f"true peak {_v(m['true_peak'],' dBTP')} · "
           f"sample {_v(m['sample_peak'],' dBFS')} · "
           f"inter-sample {_v(r['inter_sample_margin'],' dB',signed=True)}")
-    print("  Columns: dec = decoded true peak (unity) · over = codec overshoot · "
-          "play = true peak after normalization (what listeners hear)")
+    print("  Columns: samp = decoded sample peak (digital clip, dBFS) · dec = decoded true "
+          "peak (ISP/hardware clip, dBTP)")
+    print("           over = codec overshoot · play = true peak after normalization "
+          "(what listeners hear)")
     print("  Verdict reflects the PLAYBACK peak (normalization on, the default). "
-          "'unity>0' = the stream")
-    print("  exceeds 0 dBFS before normalization — audible only if a listener turns "
-          "normalization off.")
+          "'unity>0' = stream exceeds 0 dBFS before normalization.")
 
     skipped = set()
     for s in r["services"]:
@@ -1108,6 +1182,7 @@ def print_text(r, color=True):
             tag = " (lossless)" if t["lossless"] else ""
             enc = f"  · {t['encoder_used']}" if t.get("encoder_used") else ""
             line = (f"     {t['label']+tag:<22}"
+                    f"samp {_v(t['sample_peak'],'',digits=2):>7} "
                     f"dec {_v(t['decoded_tp'],'',digits=2):>7} "
                     f"over {_v(t['overshoot'],'',digits=2,signed=True):>7} "
                     f"play {_v(t['playback_tp'],'',digits=2):>7}   ")
@@ -1126,6 +1201,14 @@ def print_text(r, color=True):
     if skipped:
         print(paint(SKIP, f"  note: {', '.join(sorted(skipped))} skipped — encoder not in this ffmpeg "
                           f"build (run with --setup to install a complete bundled ffmpeg)."))
+    advice = build_advice(r)
+    if advice:
+        level, text = advice
+        icon = {"safe": "✓", "warn": "→", "fail": "✗"}[level]
+        vmap = {"safe": PASS, "warn": WARN, "fail": FAIL}
+        import textwrap
+        wrapped = textwrap.fill(text, width=92, initial_indent="  ", subsequent_indent="    ")
+        print(paint(vmap[level], f"  {icon} {wrapped.strip()}"))
 
 
 def run_cli(args):
@@ -1305,12 +1388,13 @@ class App:
         right.pack(side="left", fill="both", expand=True, padx=(12, 0))
         tk.Label(right, text="PER-SERVICE BREAKDOWN", bg=BG, fg=MUTED,
                  font=("Helvetica", 9, "bold"), anchor="w").pack(fill="x")
-        dcols = ("tp", "over", "play", "verdict")
+        dcols = ("samp", "tp", "over", "play", "verdict")
         self.detail = ttk.Treeview(right, columns=dcols, show="tree headings")
         self.detail.heading("#0", text="Service / tier")
-        self.detail.column("#0", width=250, minwidth=200, anchor="w")
-        for cid, text, w in (("tp", "Decoded TP", 90), ("over", "Overshoot", 90),
-                             ("play", "At playback", 96), ("verdict", "Verdict", 68)):
+        self.detail.column("#0", width=228, minwidth=180, anchor="w")
+        for cid, text, w in (("samp", "Sample dBFS", 90), ("tp", "True dBTP", 84),
+                             ("over", "Overshoot", 82), ("play", "At playback", 88),
+                             ("verdict", "Verdict", 64)):
             self.detail.heading(cid, text=text)
             self.detail.column(cid, width=w, anchor="center", stretch=False)
         self.detail.column("verdict", stretch=True)
@@ -1319,12 +1403,15 @@ class App:
             self.detail.tag_configure(v, foreground=col)
         self.detail.tag_configure("svc", foreground=FG, font=("Helvetica", 10, "bold"))
         tk.Label(right,
-                 text="Verdict = true peak at PLAYBACK (normalization on, the default).   "
-                      "Decoded TP = raw stream at unity; on a loud master it can exceed 0 dBFS "
-                      "yet be safe at\nplayback (normalization turns it down) — that's a WARN, "
+                 text="Sample dBFS = digital/codec peak · True dBTP = inter-sample (hardware) peak.   "
+                      "Verdict = true peak at PLAYBACK (normalization on, the default): a loud master\n"
+                      "whose stream exceeds 0 dBFS at unity but is turned down at playback is a WARN, "
                       "not a clip.   At playback = decoded TP + this service's gain.",
                  bg=BG, fg=MUTED, font=("Helvetica", 9), anchor="w",
-                 justify="left").pack(fill="x", pady=(4, 0))
+                 justify="left").pack(fill="x", pady=(4, 2))
+        self.advice = tk.Label(right, text="", bg=CARD, fg=FG, anchor="w", justify="left",
+                               font=("Helvetica", 11), padx=12, pady=9, wraplength=740)
+        self.advice.pack(fill="x", pady=(2, 0))
 
     def _button(self, parent, text, cmd, primary=False):
         return tk.Button(parent, text=text, command=cmd,
@@ -1455,7 +1542,7 @@ class App:
             head = (f"{s['name']}   {s['target']:.0f} LUFS → "
                     f"{_g(s['played_lufs'],' LUFS')}")
             parent = self.detail.insert("", "end", text=head,
-                                        values=("", "", "", LABELS[s["verdict"]]),
+                                        values=("", "", "", "", LABELS[s["verdict"]]),
                                         tags=("svc", s["verdict"]), open=True)
             for t in s["tiers"]:
                 lbl = t["label"] + ("  (lossless)" if t["lossless"] else "")
@@ -1463,11 +1550,19 @@ class App:
                     lbl += f"  · {t['encoder_used']}"
                 self.detail.insert(
                     parent, "end", text="   " + lbl,
-                    values=(_g(t["decoded_tp"], " dBTP"),
+                    values=(_g(t.get("sample_peak"), " dBFS"),
+                            _g(t["decoded_tp"], " dBTP"),
                             _g(t["overshoot"], " dB", signed=True),
                             _g(t["playback_tp"], " dBTP"),
                             LABELS[t["verdict"]]),
                     tags=(t["verdict"],))
+        advice = build_advice(r)
+        if advice:
+            level, text = advice
+            icon = {"safe": "✓", "warn": "→", "fail": "✗"}[level]
+            self.advice.config(text=f"{icon}  {text}", fg=COLORS[{"safe": PASS, "warn": WARN, "fail": FAIL}[level]])
+        else:
+            self.advice.config(text="")
         m = r["master"]
         self.summary.config(
             text=(f"Integrated   {_g(m['integrated_lufs'],' LUFS')}\n"
@@ -1487,6 +1582,7 @@ class App:
         self.tree.delete(*self.tree.get_children())
         self.detail.delete(*self.detail.get_children())
         self.summary.config(text="")
+        self.advice.config(text="")
         self.progress.config(value=0)
         self.prog_label.config(text="Ready.")
 
