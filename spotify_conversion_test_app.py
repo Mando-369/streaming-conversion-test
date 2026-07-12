@@ -66,7 +66,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 import argparse
 import datetime
@@ -177,16 +177,24 @@ CLIP_CEILING = 0.0         # dBFS: a decoded peak above this is hard clipping
 
 
 class TranscodeSpec:
-    """One unique codec/bitrate round-trip we actually run through ffmpeg."""
+    """One unique codec/bitrate round-trip we actually run through ffmpeg.
 
-    __slots__ = ("key", "label", "codec", "bitrate", "ext")
+    `primary` marks the high/standard-quality tiers most listeners actually get
+    (they drive the verdict and the mastering recommendation).  Low-bitrate
+    data-saver / fallback tiers are `primary=False`: still analyzed and shown, but
+    treated as an informational, non-blocking notice — a −0.5 dBTP master should
+    not be graded on what a data-saver stream does.
+    """
 
-    def __init__(self, key, label, codec, bitrate, ext):
+    __slots__ = ("key", "label", "codec", "bitrate", "ext", "primary")
+
+    def __init__(self, key, label, codec, bitrate, ext, primary=True):
         self.key = key
         self.label = label
         self.codec = codec
         self.bitrate = bitrate
         self.ext = ext
+        self.primary = primary
 
 
 # NOTE: ffmpeg's *native* `aac` encoder overshoots true peak far more than any
@@ -198,16 +206,18 @@ class TranscodeSpec:
 # The union of lossy codec tiers used by any service.  Each is transcoded ONCE
 # per file; services then reference these results by key.
 TRANSCODES = [
-    TranscodeSpec("vorbis_96",  "Ogg Vorbis 96k",  "libvorbis",   "96k",  "ogg"),
-    TranscodeSpec("vorbis_160", "Ogg Vorbis 160k", "libvorbis",   "160k", "ogg"),
-    TranscodeSpec("vorbis_320", "Ogg Vorbis 320k", "libvorbis",   "320k", "ogg"),
-    TranscodeSpec("aac_128",    "AAC 128k",        "aac",         "128k", "m4a"),
-    TranscodeSpec("aac_256",    "AAC 256k",        "aac",         "256k", "m4a"),
-    TranscodeSpec("opus_64",    "Opus 64k",        "libopus",     "64k",  "opus"),
-    TranscodeSpec("opus_128",   "Opus 128k",       "libopus",     "128k", "opus"),
-    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus"),
-    TranscodeSpec("mp3_128",    "MP3 128k",        "libmp3lame",  "128k", "mp3"),
-    TranscodeSpec("mp3_320",    "MP3 320k",        "libmp3lame",  "320k", "mp3"),
+    # Primary tiers = the main streaming quality most listeners get.
+    TranscodeSpec("vorbis_160", "Ogg Vorbis 160k", "libvorbis",   "160k", "ogg",  primary=True),   # Spotify High (default)
+    TranscodeSpec("vorbis_320", "Ogg Vorbis 320k", "libvorbis",   "320k", "ogg",  primary=True),   # Spotify Very High
+    TranscodeSpec("aac_256",    "AAC 256k",        "aac",         "256k", "m4a",  primary=True),   # Apple / Amazon / Tidal / premium
+    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus", primary=True),   # YouTube standard
+    TranscodeSpec("mp3_320",    "MP3 320k",        "libmp3lame",  "320k", "mp3",  primary=True),   # Deezer High
+    # Informational tiers = low-bitrate / data-saver / fallback (non-blocking).
+    TranscodeSpec("vorbis_96",  "Ogg Vorbis 96k",  "libvorbis",   "96k",  "ogg",  primary=False),  # Spotify Low
+    TranscodeSpec("aac_128",    "AAC 128k",        "aac",         "128k", "m4a",  primary=False),  # free web
+    TranscodeSpec("opus_128",   "Opus 128k",       "libopus",     "128k", "opus", primary=False),  # below standard
+    TranscodeSpec("opus_64",    "Opus 64k",        "libopus",     "64k",  "opus", primary=False),  # data-saver
+    TranscodeSpec("mp3_128",    "MP3 128k",        "libmp3lame",  "128k", "mp3",  primary=False),  # fallback
 ]
 TRANSCODE_BY_KEY = {t.key: t for t in TRANSCODES}
 
@@ -292,13 +302,22 @@ PASS, WARN, FAIL, SKIP = "pass", "warn", "fail", "skip"
 # SKIP (encoder unavailable) ranks below PASS so it never worsens the verdict.
 _RANK = {SKIP: -1, PASS: 0, WARN: 1, FAIL: 2}
 
-COLORS = {PASS: "#1db954", WARN: "#f5a623", FAIL: "#e0245e", SKIP: "#8a8a8a"}
-LABELS = {PASS: "PASS", WARN: "WARN", FAIL: "FAIL", SKIP: "N/A"}
+# "info" is a DISPLAY-only key for informational (data-saver) tiers — rendered
+# muted and never rolled into a service/overall verdict.
+INFO = "info"
+COLORS = {PASS: "#1db954", WARN: "#f5a623", FAIL: "#e0245e", SKIP: "#8a8a8a", INFO: "#6f6f6f"}
+LABELS = {PASS: "PASS", WARN: "WARN", FAIL: "FAIL", SKIP: "N/A", INFO: "info"}
 
 
 def worst(*verdicts):
     """Return the most severe verdict among the arguments."""
     return max(verdicts, key=lambda v: _RANK[v])
+
+
+def tier_display_key(t):
+    """Verdict key to DISPLAY for a tier — informational (data-saver) tiers show
+    muted 'info' instead of an alarming WARN, since they don't affect the verdict."""
+    return INFO if not t.get("primary", True) else t["verdict"]
 
 
 def effective_ceiling(service, integrated_lufs):
@@ -723,24 +742,27 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
         master_verdict = evaluate_peak(tp, ceiling)
 
         tiers = []
-        svc_worst = master_verdict
-        any_clip = False          # clips at PLAYBACK (audible with normalization on)
-        any_unity_clip = False    # stream exceeds 0 dBFS at unity gain
+        svc_worst = master_verdict   # only PRIMARY tiers roll into the service verdict
+        any_clip = False             # PRIMARY tier clips at PLAYBACK (audible, normalization on)
+        any_unity_clip = False       # PRIMARY tier exceeds 0 dBFS at unity gain
+        info_overshoot = False       # an informational (data-saver) tier exceeds 0 dBFS at unity
         overs = []
         for tkey, ctx in svc.tiers:
             if tkey in LOSSLESS:
-                # Bit-exact: decoded == master, no added overshoot.
+                # Bit-exact: decoded == master, no added overshoot.  Always primary.
+                is_primary = True
                 dtp = tp
                 over = 0.0 if tp is not None else None
                 ptp = (dtp + gain) if dtp is not None else None
                 v = evaluate_tier(dtp, ptp)
                 unity_clip = dtp is not None and dtp > CLIP_CEILING
                 tiers.append({"key": tkey, "label": LOSSLESS[tkey], "context": ctx,
-                              "lossless": True, "decoded_tp": dtp,
+                              "lossless": True, "primary": True, "decoded_tp": dtp,
                               "sample_peak": master["sample_peak"], "overshoot": over,
                               "playback_tp": ptp, "verdict": v, "error": None,
                               "encoder_used": None, "unity_clip": unity_clip})
             else:
+                is_primary = TRANSCODE_BY_KEY[tkey].primary
                 tr = transcodes[tkey]
                 dtp = tr["decoded_tp"]
                 over = tr["overshoot"]
@@ -755,33 +777,42 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
                     ptp = (dtp + gain) if dtp is not None else None
                     v = evaluate_tier(dtp, ptp)
                     unity_clip = dtp is not None and dtp > CLIP_CEILING
-                    if over is not None:
+                    if over is not None and is_primary:
                         overs.append(over)
                 tiers.append({"key": tkey, "label": tr["label"], "context": ctx,
-                              "lossless": False, "decoded_tp": dtp,
+                              "lossless": False, "primary": is_primary, "decoded_tp": dtp,
                               "sample_peak": tr.get("decoded_sample_peak"), "overshoot": over,
                               "playback_tp": ptp, "verdict": v, "error": tr["error"],
                               "encoder_used": tr.get("encoder_used"), "unity_clip": unity_clip})
-            if ptp is not None and ptp > CLIP_CEILING:
-                any_clip = True
-            if unity_clip:
-                any_unity_clip = True
-            svc_worst = worst(svc_worst, v)
+
+            if is_primary:
+                if ptp is not None and ptp > CLIP_CEILING:
+                    any_clip = True
+                if unity_clip:
+                    any_unity_clip = True
+                svc_worst = worst(svc_worst, v)
+            elif unity_clip:
+                info_overshoot = True
 
         services.append({
             "key": svc.key, "name": svc.name, "target": svc.target,
             "ceiling": ceiling, "gain": gain, "played_lufs": played,
             "master_verdict": master_verdict, "verdict": svc_worst,
             "any_clip": any_clip, "any_unity_clip": any_unity_clip,
+            "info_overshoot": info_overshoot,
             "max_overshoot": max(overs) if overs else None,
             "note": svc.note, "tiers": tiers,
         })
         overall = worst(overall, svc_worst)
 
-    # --- Cross-service stability summary -------------------------------------
-    all_overs = [t["overshoot"] for t in transcodes.values() if t["overshoot"] is not None]
-    any_unity_clip_any = any(t["decoded_tp"] is not None and t["decoded_tp"] > CLIP_CEILING
-                             for t in transcodes.values())
+    # --- Cross-service stability summary (primary tiers only for verdicts) ----
+    prim_keys = {k for k in USED_TRANSCODE_KEYS if TRANSCODE_BY_KEY[k].primary}
+    all_overs = [transcodes[k]["overshoot"] for k in prim_keys
+                 if transcodes[k]["overshoot"] is not None]
+    any_unity_clip_any = any(transcodes[k]["decoded_tp"] is not None and transcodes[k]["decoded_tp"] > CLIP_CEILING
+                             for k in prim_keys)
+    any_info_overshoot = any(transcodes[k]["decoded_tp"] is not None and transcodes[k]["decoded_tp"] > CLIP_CEILING
+                             for k in USED_TRANSCODE_KEYS if k not in prim_keys)
     any_playback_clip = any(s["any_clip"] for s in services)
     inter_sample = (tp - master["sample_peak"]) if (tp is not None and master["sample_peak"] is not None) else None
 
@@ -794,9 +825,10 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
         "inter_sample_margin": inter_sample,
         "transcodes": list(transcodes.values()),
         "services": services,
-        "worst_overshoot": max(all_overs) if all_overs else None,
-        "any_clip": any_playback_clip,          # audible at playback (normalization on)
-        "any_unity_clip": any_unity_clip_any,    # stream exceeds 0 dBFS at unity
+        "worst_overshoot": max(all_overs) if all_overs else None,   # primary tiers only
+        "any_clip": any_playback_clip,          # primary tier clips at playback
+        "any_unity_clip": any_unity_clip_any,    # primary tier exceeds 0 dBFS at unity
+        "any_info_overshoot": any_info_overshoot,  # data-saver tier exceeds 0 dBFS (informational)
         "overall": overall,
     }
 
@@ -804,22 +836,29 @@ def analyze_file(ffmpeg, path, available_encoders=None, progress=None, max_worke
 def build_advice(result):
     """Actionable mastering guidance for one result.
 
-    Returns (level, text) where level is 'safe' | 'warn' | 'fail', or None if
-    there's nothing meaningful to say.  The recommendation is judged at unity gain
-    (the strict "safe in every scenario" test) and notes the normalization caveat.
+    Judged on the PRIMARY streaming tiers only (the quality most listeners get) —
+    low-bitrate data-saver tiers are demoted to a non-blocking notice.  Returns
+    (level, text) where level is 'safe' | 'warn' | 'fail', or None.
     """
     tp = result["master_true_peak"]
     if tp is None:
         return None
 
-    # Worst decoded true peak at unity across the lossy tiers, and which tier.
+    # Worst decoded true peak at unity among the PRIMARY lossy tiers.
     worst_dec, worst_tier = None, None
     for s in result["services"]:
         for t in s["tiers"]:
-            if t["lossless"] or t["decoded_tp"] is None:
+            if t["lossless"] or not t.get("primary", True) or t["decoded_tp"] is None:
                 continue
             if worst_dec is None or t["decoded_tp"] > worst_dec:
                 worst_dec, worst_tier = t["decoded_tp"], t["label"]
+
+    # Notice about informational (data-saver) tiers, appended when the master is fine.
+    notice = ""
+    if result.get("any_info_overshoot"):
+        notice = (" Notice: low-bandwidth fallback streams (e.g. Opus 64k, AAC 128k) show "
+                  "overshoot at unity — normal for data-saver tiers and eliminated by loudness "
+                  "normalization at playback; no action needed.")
 
     if tp > CLIP_CEILING:
         return ("fail",
@@ -828,20 +867,19 @@ def build_advice(result):
                 f"anything else.")
 
     if worst_dec is not None and worst_dec > CLIP_CEILING:
-        rec = tp - worst_dec  # master ceiling that brings the worst tier down to 0 dBFS
+        rec = tp - worst_dec  # master ceiling that brings the worst primary tier to 0 dBFS
         return ("warn",
-                f"At unity gain the worst codec ({worst_tier}) reaches {worst_dec:+.2f} dBTP — "
-                f"above 0 dBFS. To keep every delivered stream under 0 dBFS even with "
-                f"normalization OFF, lower your master's true peak to about {rec:.1f} dBTP and "
-                f"re-export. With loudness normalization ON (Spotify/YouTube default) this master "
-                f"is turned down and already plays safely — so this mainly affects un-normalized "
-                f"playback, downloads, and the lowest-bitrate tiers.")
+                f"A primary streaming tier ({worst_tier}) reaches {worst_dec:+.2f} dBTP at unity — "
+                f"above 0 dBFS. To keep the main streams under 0 dBFS even with normalization OFF, "
+                f"lower your master's true peak to about {rec:.1f} dBTP and re-export. With "
+                f"normalization ON (the streaming default) it's turned down and already plays "
+                f"safely.{notice}")
 
     headroom = f", {abs(worst_dec):.2f} dB of headroom to spare" if worst_dec is not None else ""
     return ("safe",
-            f"Safe — every codec's decoded stream stays under 0 dBFS{headroom}. This master "
-            f"survives conversion intact even at {tp:+.2f} dBTP; you do NOT need to pull it down "
-            f"to −1 dBTP for these services.")
+            f"Safe — the primary streaming tiers (Ogg Vorbis 320/160, AAC 256, Opus 160, MP3 320) "
+            f"all stay under 0 dBFS{headroom}. This master survives conversion intact even at "
+            f"{tp:+.2f} dBTP; no re-export required, and no need to pull it down to −1 dBTP.{notice}")
 
 
 # =============================================================================
@@ -900,23 +938,27 @@ def _service_block(svc):
 
     rows = []
     for t in svc["tiers"]:
-        tvc = COLORS[t["verdict"]]
+        dk = tier_display_key(t)
+        tvc = COLORS[dk]
+        row_cls = ' class="ds"' if not t.get("primary", True) else ""
         extra = LOSSLESS_TAG if t["lossless"] else ""
+        if not t.get("primary", True):
+            extra += '<span class="tag ds">data-saver</span>'
         if t.get("encoder_used"):
             extra += f'<span class="tag enc">{html.escape(t["encoder_used"])}</span>'
         if t.get("unity_clip"):
             extra += '<span class="tag unity">unity &gt; 0 dBFS</span>'
         err = f'<div class="err">{html.escape(t["error"])}</div>' if t["error"] else ""
         rows.append(
-            f'<tr>'
+            f'<tr{row_cls}>'
             f'<td><b>{html.escape(t["label"])}</b>{extra}'
             f'<div class="ctx">{html.escape(t["context"])}</div>{err}</td>'
             f'<td class="num">{_fmt(t.get("sample_peak"), " dBFS")}</td>'
             f'<td class="num">{_fmt(t["decoded_tp"], " dBTP")}</td>'
             f'<td class="num" style="color:{tvc}"><b>{_signed(t["overshoot"], " dB")}</b></td>'
             f'<td class="num">{_fmt(t["playback_tp"], " dBTP")}</td>'
-            f'<td>{_tp_bar(t["decoded_tp"], t["verdict"])}</td>'
-            f'<td><span class="pill" style="background:{tvc}">{LABELS[t["verdict"]]}</span></td>'
+            f'<td>{_tp_bar(t["decoded_tp"], dk)}</td>'
+            f'<td><span class="pill" style="background:{tvc}">{LABELS[dk]}</span></td>'
             f'</tr>'
         )
 
@@ -1005,7 +1047,7 @@ def _file_section(r):
           <div class="sub">inter-sample {_signed(r['inter_sample_margin'], ' dB')}</div></div>
         <div class="card"><div class="k">Worst overshoot</div>
           <div class="v">{_signed(r['worst_overshoot'], ' dB')}</div>
-          <div class="sub">across all lossy codecs</div></div>
+          <div class="sub">across primary tiers</div></div>
         <div class="card"><div class="k">Loudness range</div>
           <div class="v">{_fmt(m['lra'], ' LU')}</div>
           <div class="sub">LRA</div></div>
@@ -1067,6 +1109,8 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
       background:#2a2a2a;color:#9ad;border-radius:4px;padding:1px 5px;vertical-align:middle}
     .tag.enc{color:#7ddf9f;text-transform:none;letter-spacing:0}
     .tag.unity{color:#f5a623;background:#3a2f1a}
+    .tag.ds{color:#9a9a9a;background:#262626}
+    tr.ds td{opacity:.6}
     .reliability{margin:6px 32px 4px;background:#161616;border:1px solid #242424;border-radius:12px;padding:14px 18px}
     .reliability h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;opacity:.7}
     .reliability table{width:auto;margin:0;font-size:12.5px}
@@ -1103,10 +1147,13 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
 {RELIABILITY_BOX}
 <main>{sections}</main>
 <footer>
-  <b>Verdict reflects the true peak at PLAYBACK</b> — with each service's loudness
-  normalization on, which is the default listening case. "Decoded TP" is the codec's
-  decoded true peak at unity gain; "Overshoot" is decoded minus master true peak;
-  "At playback" adds the service's normalization gain. A tier marked
+  <b>The verdict is judged on the PRIMARY streaming tiers</b> (Ogg Vorbis 320/160,
+  AAC 256, Opus 160, MP3 320 — the quality most listeners get) at PLAYBACK, with each
+  service's loudness normalization on. Tiers tagged
+  <span class="tag ds">data-saver</span> are low-bitrate fallbacks shown for information
+  only; they never affect the verdict. "Sample pk" is the raw digital peak (dBFS);
+  "True peak" is the inter-sample peak (dBTP); "At playback" adds the service's
+  normalization gain. A tier marked
   <span class="tag unity">unity &gt; 0 dBFS</span> exceeds full scale in the raw stream
   but is turned down at playback — it only clips if a listener disables normalization,
   or in a non-normalized/downloaded copy. Low-bitrate codecs genuinely overshoot more on
@@ -1127,7 +1174,7 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
 
 AUDIO_EXTS = (".wav", ".wave", ".aif", ".aiff", ".flac")
 
-_ANSI = {PASS: "\033[32m", WARN: "\033[33m", FAIL: "\033[31m", SKIP: "\033[90m"}
+_ANSI = {PASS: "\033[32m", WARN: "\033[33m", FAIL: "\033[31m", SKIP: "\033[90m", INFO: "\033[90m"}
 _RESET = "\033[0m"
 
 
@@ -1168,8 +1215,9 @@ def print_text(r, color=True):
           "peak (ISP/hardware clip, dBTP)")
     print("           over = codec overshoot · play = true peak after normalization "
           "(what listeners hear)")
-    print("  Verdict reflects the PLAYBACK peak (normalization on, the default). "
-          "'unity>0' = stream exceeds 0 dBFS before normalization.")
+    print("  Verdict is judged on PRIMARY tiers at the PLAYBACK peak (normalization on). "
+          "'(data-saver)' tiers are")
+    print("  informational only. 'unity>0' = stream exceeds 0 dBFS before normalization.")
 
     skipped = set()
     for s in r["services"]:
@@ -1179,15 +1227,17 @@ def print_text(r, color=True):
                 f"~{_v(s['played_lufs'],' LUFS')} (gain {_v(gain,' dB',signed=True)}, {gdir})   ")
         print(paint(s["verdict"], head + f"[{LABELS[s['verdict']]}]"))
         for t in s["tiers"]:
-            tag = " (lossless)" if t["lossless"] else ""
+            tag = (" (lossless)" if t["lossless"]
+                   else ("" if t.get("primary", True) else " (data-saver)"))
             enc = f"  · {t['encoder_used']}" if t.get("encoder_used") else ""
-            line = (f"     {t['label']+tag:<22}"
+            dk = tier_display_key(t)
+            line = (f"     {t['label']+tag:<24}"
                     f"samp {_v(t['sample_peak'],'',digits=2):>7} "
                     f"dec {_v(t['decoded_tp'],'',digits=2):>7} "
                     f"over {_v(t['overshoot'],'',digits=2,signed=True):>7} "
                     f"play {_v(t['playback_tp'],'',digits=2):>7}   ")
             mark = "  unity>0" if t.get("unity_clip") else ""
-            print(line + paint(t["verdict"], LABELS[t["verdict"]]) + enc + mark)
+            print(line + paint(dk, LABELS[dk]) + enc + mark)
             if t["verdict"] == SKIP:
                 skipped.add(t["label"])
 
@@ -1403,10 +1453,11 @@ class App:
             self.detail.tag_configure(v, foreground=col)
         self.detail.tag_configure("svc", foreground=FG, font=("Helvetica", 10, "bold"))
         tk.Label(right,
-                 text="Sample dBFS = digital/codec peak · True dBTP = inter-sample (hardware) peak.   "
-                      "Verdict = true peak at PLAYBACK (normalization on, the default): a loud master\n"
-                      "whose stream exceeds 0 dBFS at unity but is turned down at playback is a WARN, "
-                      "not a clip.   At playback = decoded TP + this service's gain.",
+                 text="Verdict is judged on PRIMARY streaming tiers at PLAYBACK (normalization on). "
+                      "'data-saver' tiers (low-bitrate fallbacks) are informational only and don't\n"
+                      "affect the verdict.   Sample dBFS = digital/codec peak · True dBTP = inter-sample "
+                      "(hardware) peak · unity>0 = exceeds full scale before normalization (safe once "
+                      "turned down).",
                  bg=BG, fg=MUTED, font=("Helvetica", 9), anchor="w",
                  justify="left").pack(fill="x", pady=(4, 2))
         self.advice = tk.Label(right, text="", bg=CARD, fg=FG, anchor="w", justify="left",
@@ -1545,17 +1596,19 @@ class App:
                                         values=("", "", "", "", LABELS[s["verdict"]]),
                                         tags=("svc", s["verdict"]), open=True)
             for t in s["tiers"]:
-                lbl = t["label"] + ("  (lossless)" if t["lossless"] else "")
+                lbl = t["label"] + ("  (lossless)" if t["lossless"]
+                                    else ("" if t.get("primary", True) else "  (data-saver)"))
                 if t.get("encoder_used"):
                     lbl += f"  · {t['encoder_used']}"
+                dk = tier_display_key(t)
                 self.detail.insert(
                     parent, "end", text="   " + lbl,
                     values=(_g(t.get("sample_peak"), " dBFS"),
                             _g(t["decoded_tp"], " dBTP"),
                             _g(t["overshoot"], " dB", signed=True),
                             _g(t["playback_tp"], " dBTP"),
-                            LABELS[t["verdict"]]),
-                    tags=(t["verdict"],))
+                            LABELS[dk]),
+                    tags=(dk,))
         advice = build_advice(r)
         if advice:
             level, text = advice
