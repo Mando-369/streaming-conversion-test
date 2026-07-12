@@ -33,14 +33,17 @@ Loudness targets are publicly-reported, approximate, and change over time:
 | **Deezer** | −15 LUFS | MP3 128 / 320, FLAC |
 | **SoundCloud** | −14 LUFS | Opus 64, AAC 256, MP3 128 |
 
-Each unique codec/bitrate is transcoded **once** per file, then reused across every
-service that serves it.
+Each unique codec/bitrate is transcoded **once** per file (all tiers run
+**concurrently across your CPU cores** — a full track analyzes in a few seconds),
+then reused across every service that serves it.
 
-> **Apple Music uses Apple's own AAC encoder.** On **macOS** this tool encodes the
-> Apple Music tier with the real thing — ffmpeg's AudioToolbox `aac_at`, or the
-> built-in `/usr/bin/afconvert` — so that row is high-fidelity, not a proxy. On
-> Windows/Linux it falls back to ffmpeg's generic AAC. Every result shows which
-> encoder actually ran.
+> **AAC uses a real encoder, not ffmpeg's native one.** ffmpeg's built-in `aac`
+> encoder overshoots true peak ~2 dB more than any encoder a real service uses, so
+> on **macOS** every AAC tier is encoded with **Apple's CoreAudio AAC** (`aac_at`,
+> the same encoder iTunes/Logic/Apple Music use) in **constrained-VBR** mode — the
+> mode real encoders actually use. Falls back to FDK → `afconvert` → ffmpeg native
+> AAC (a flagged proxy) on systems without those. Every result shows which encoder
+> ran. *Validated: AAC and MP3 match iZotope Insight within 0.2 dB.*
 
 ---
 
@@ -71,11 +74,16 @@ is the reference for the −14 LUFS / −1 dBTP rules:
 
 ### Verdicts
 
+The verdict reflects the true peak **at playback** — with each service's loudness
+normalization on, which is the default listening case. (A loud master gets turned
+*down* at playback, so its encoded stream can exceed 0 dBFS at unity gain yet be
+perfectly safe for listeners.)
+
 | | Meaning |
 |---|---|
-| 🟢 **PASS** | Within spec; no codec for that service exceeds −1 dBTP. |
-| 🟠 **WARN** | A decoded peak lands between −1 and 0 dBTP — above recommended headroom but not clipping. |
-| 🔴 **FAIL** | The master already clips, or a codec pushes the decoded true peak above 0 dBFS. |
+| 🟢 **PASS** | Safe at playback and within recommended headroom. |
+| 🟠 **WARN** | Above the recommended ceiling, **or** the encoded stream exceeds 0 dBFS at unity gain (tagged `unity > 0 dBFS`) — audible only if a listener disables normalization, or in a non-normalized/downloaded copy. Common for loud masters. |
+| 🔴 **FAIL** | The master already clips, or a codec clips **at playback** (after normalization) — audible even with normalization on. Mostly affects *quiet* masters lifted upward. |
 | **N/A** | That codec's encoder isn't available in the current ffmpeg build. |
 
 ---
@@ -160,26 +168,27 @@ python3 spotify_conversion_test_app.py --help
 ## How to read the output
 
 ```
-=== hot.wav  [FAIL] ===
-  Master   integrated -0.25 LUFS · true peak -0.08 dBTP · sample -0.04 dBFS · inter-sample -0.04 dB
-  Columns: dec = decoded true peak (unity) · over = codec overshoot · play = true peak after that service's normalization
-  Spotify          -14 LUFS  → plays ~-14.00 LUFS (gain -13.75 dB, down)   [FAIL]
-     Ogg Vorbis 96k        dec    0.36 over   +0.44 play  -13.39   FAIL
-     ...
-  Apple Music      -16 LUFS  → plays ~-16.00 LUFS (gain -15.75 dB, down)   [FAIL]
-     AAC 256k              dec    0.04 over   +0.12 play  -15.71   FAIL  · Apple aac_at
-     ALAC (lossless)       dec   -0.08 over   +0.00 play  -15.83   WARN
+=== loud_master.wav  [WARN] ===
+  Master   integrated -10.41 LUFS · true peak -0.56 dBTP · sample -0.60 dBFS · inter-sample +0.04 dB
+  Columns: dec = decoded true peak (unity) · over = codec overshoot · play = true peak after normalization (what listeners hear)
+  Verdict reflects the PLAYBACK peak (normalization on, the default). 'unity>0' = stream exceeds 0 dBFS before normalization.
+  Spotify          -14 LUFS  → plays ~-14.00 LUFS (gain -3.59 dB, down)   [WARN]
+     Ogg Vorbis 96k        dec    1.59 over   +2.15 play   -2.00   WARN  unity>0
+     Ogg Vorbis 320k       dec   -0.31 over   +0.25 play   -3.90   WARN
+     AAC 128k              dec    0.72 over   +1.28 play   -2.87   WARN  · Apple AAC
+     AAC 256k              dec   -0.11 over   +0.45 play   -3.70   WARN  · Apple AAC
 ```
 
-- **dec** — the codec's decoded true peak at unity gain. Above 0 dBFS is real
-  clipping in the delivered stream.
-- **over** — `decoded − master` true peak: how much this codec pushed the peak up.
-- **play** — the effective true peak *after* that service applies its
-  normalization gain (what a listener's DAC sees with normalization on).
+- **dec** — decoded true peak at unity gain. On a *loud* master this can exceed
+  0 dBFS (`unity>0`) yet still be safe at playback, because normalization turns
+  the track down.
+- **over** — `decoded − master` true peak: how much this codec added.
+- **play** — the true peak **after** the service's normalization; the **verdict is
+  based on this** (what listeners actually hear with normalization on).
 
-The takeaway is the usual mastering guidance, now measured on *your* file: if a
-codec is clipping, pull your master's true-peak ceiling down (−1 dBTP, or −2 dBTP
-if you're hotter than −14 LUFS) and re-test.
+The takeaway is the usual mastering guidance, measured on *your* file: to be safe
+across every service and setting (including listeners with normalization off), keep
+the master's true peak at −1 dBTP, or −2 dBTP if you're hotter than −14 LUFS.
 
 ---
 
@@ -190,17 +199,26 @@ if you're hotter than −14 LUFS) and re-test.
 | Loudness / normalization math (LUFS, gain, "plays at") | 🟢 High — deterministic BS.1770 |
 | Overshoot direction & clipping flags | 🟢 High — a real encode→decode round-trip |
 | Relative comparisons (codec vs codec, master vs master, lossless = clean) | 🟢 High |
-| **Apple Music on macOS** | 🟢 High — uses Apple's real AAC encoder (`aac_at` / `afconvert`) |
-| Apple Music on Windows/Linux | 🟠 Proxy — ffmpeg's generic AAC |
-| Absolute overshoot magnitude per service | 🟠 Medium — ±~0.3 dB |
+| **AAC & MP3 on macOS** | 🟢 High — real encoders, validated within 0.2 dB vs iZotope Insight |
+| AAC on Windows/Linux (no `aac_at`/FDK) | 🟠 Proxy — ffmpeg native AAC, flagged in the row |
+| Ogg Vorbis / Opus | 🟢 Good — `libvorbis`/`libopus`, the reference encoders those services use |
+| Absolute peak vs another tool/meter | 🟠 ±~0.3 dB — normal true-peak meter variance (see below) |
 | Service parameters (targets, bitrates) | 🟠 Medium — approximate, change over time |
 
 Use it as a **relative pre-delivery check** — "does my master have enough
 true-peak headroom to survive lossy streaming, and which services/codecs are the
 riskiest." It is a faithful, conservative **simulation**, not a bit-exact
-prediction of any one service's encoder. It does **not** model encoder
-quality/VBR settings, service-side pre-processing, sample-rate conversion, or
-perceptual quality — and it's never a substitute for critical listening.
+prediction of any one service's encoder.
+
+**On comparing to other tools:** two correct true-peak meters routinely disagree by
+**~0.2–0.4 dB** — BS.1770 only mandates a *minimum* 4× oversampling, and meters
+(ffmpeg, iZotope Insight, Sonnox ListenHub…) use anywhere from 4× to 16×. A
+sub-0.5 dB gap between this tool and your meter is agreement, not error. Also
+**measure the encoded file directly** in a file-based meter — importing into a DAW
+resamples it to the project sample rate (a real artifact), and measuring real-time
+playback adds the system audio path. The tool does **not** model service-side
+pre-processing or resample to each service's delivery rate (a ~0.1 dB effect), and
+it's never a substitute for critical listening.
 
 This same reliability sheet is printed at the top of every HTML report and
 summarised in the command-line output, so anyone reading a result knows exactly
@@ -214,8 +232,8 @@ how much to trust it.
   real round-trips (plus Apple's `aac_at` / AudioToolbox on macOS); `loudnorm`
   (ITU-R BS.1770 integrated loudness + 4× oversampled true peak) and `astats`
   (sample peak) for measurement.
-- **macOS AudioToolbox / `afconvert`** — Apple's real AAC encoder for the Apple
-  Music tier, on macOS only.
+- **macOS AudioToolbox / `afconvert`** — Apple's real CoreAudio AAC encoder
+  (`aac_at`, constrained-VBR) for **all** AAC tiers, on macOS.
 - **Python standard library** (incl. `tkinter`) for the app and report.
 - **imageio-ffmpeg** / **tkinterdnd2** — optional, auto-installed on demand for the
   bundled ffmpeg and true drag-and-drop.
@@ -224,15 +242,18 @@ how much to trust it.
 
 ## Notes & limitations
 
-- ffmpeg's encoders are excellent references but are not byte-identical to each
-  service's internal encoder builds; treat overshoot figures as a faithful,
-  conservative simulation. On macOS the **Apple Music** tier uses Apple's real AAC
-  encoder (AudioToolbox `aac_at`, or `afconvert`); elsewhere it falls back to
-  ffmpeg's AAC as a proxy, and each report row shows which encoder ran.
+- **AAC:** ffmpeg's *native* AAC encoder overshoots ~2 dB more than real encoders,
+  so all AAC tiers use Apple's CoreAudio AAC (`aac_at`, constrained-VBR) on macOS,
+  falling back to FDK → `afconvert` → native AAC (flagged) elsewhere. AAC true peak
+  is inherently encoder-mode-dependent (±~1 dB); each row shows which encoder ran.
+- **Vorbis / Opus / MP3** use `libvorbis` / `libopus` / LAME — the reference
+  encoders those services actually use — in their normal quality/VBR modes.
 - Lossless tiers (FLAC/ALAC) round-trip bit-exactly, so they add no overshoot; the
   tool reports them as such rather than re-encoding.
 - Normalization is applied at **playback** — your uploaded file is never altered —
   so the "plays at" figure is what listeners hear, not a change to your master.
+- ffmpeg's encoders are excellent references but not byte-identical to each
+  service's internal builds; treat figures as a faithful, conservative simulation.
 
 ---
 

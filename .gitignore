@@ -13,3 +13,6 @@ venv/
 
 # Generated reports (keep docs/sample_report.html, ignore ad-hoc ones)
 /report*.html
+
+# User test audio (large; not for distribution)
+testsound/
