@@ -66,7 +66,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 import argparse
 import datetime
@@ -175,6 +175,13 @@ TP_CEILING_NORMAL = -1.0   # dBTP ceiling recommended for lossy delivery
 TP_CEILING_HOT = -2.0      # dBTP ceiling if master is louder than target (Spotify)
 CLIP_CEILING = 0.0         # dBFS: a decoded peak above this is hard clipping
 
+# True-peak oversampling.  BS.1770-4 mandates only 4x, which under-reads
+# near-Nyquist inter-sample peaks by up to ~0.5 dB; we upsample this much with a
+# high-precision (soxr) filter and take the reconstructed sample peak — meter-grade.
+TP_OVERSAMPLE = 16
+DELIVERY_RATE_44K = 44100  # services deliver Vorbis/AAC/MP3 at 44.1 kHz
+DELIVERY_RATE_48K = 48000  # Opus is always 48 kHz internally (YouTube)
+
 
 class TranscodeSpec:
     """One unique codec/bitrate round-trip we actually run through ffmpeg.
@@ -186,15 +193,20 @@ class TranscodeSpec:
     not be graded on what a data-saver stream does.
     """
 
-    __slots__ = ("key", "label", "codec", "bitrate", "ext", "primary")
+    __slots__ = ("key", "label", "codec", "bitrate", "ext", "primary", "rate")
 
-    def __init__(self, key, label, codec, bitrate, ext, primary=True):
+    def __init__(self, key, label, codec, bitrate, ext, primary=True,
+                 rate=DELIVERY_RATE_44K):
         self.key = key
         self.label = label
         self.codec = codec
         self.bitrate = bitrate
         self.ext = ext
         self.primary = primary
+        # The sample rate the service actually delivers this tier at.  A hi-res
+        # (e.g. 48 kHz) upload is resampled to this BEFORE the lossy encode, so we
+        # match that here rather than encoding at the source rate.
+        self.rate = rate
 
 
 # NOTE: ffmpeg's *native* `aac` encoder overshoots true peak far more than any
@@ -214,9 +226,9 @@ TRANSCODES = [
     TranscodeSpec("vorbis_160", "Ogg Vorbis 160k", "libvorbis",   "160k", "ogg",  primary=False),  # Spotify High/default
     TranscodeSpec("vorbis_96",  "Ogg Vorbis 96k",  "libvorbis",   "96k",  "ogg",  primary=False),  # Spotify Low
     TranscodeSpec("aac_128",    "AAC 128k",        "aac",         "128k", "m4a",  primary=False),  # free web
-    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus", primary=False),  # YouTube standard
-    TranscodeSpec("opus_128",   "Opus 128k",       "libopus",     "128k", "opus", primary=False),  # below standard
-    TranscodeSpec("opus_64",    "Opus 64k",        "libopus",     "64k",  "opus", primary=False),  # data-saver
+    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus", primary=False, rate=DELIVERY_RATE_48K),  # YouTube standard
+    TranscodeSpec("opus_128",   "Opus 128k",       "libopus",     "128k", "opus", primary=False, rate=DELIVERY_RATE_48K),  # below standard
+    TranscodeSpec("opus_64",    "Opus 64k",        "libopus",     "64k",  "opus", primary=False, rate=DELIVERY_RATE_48K),  # data-saver
     TranscodeSpec("mp3_128",    "MP3 128k",        "libmp3lame",  "128k", "mp3",  primary=False),  # fallback
 ]
 TRANSCODE_BY_KEY = {t.key: t for t in TRANSCODES}
@@ -540,15 +552,13 @@ def measure(ffmpeg, path):
         "sample_peak": None,
     }
 
-    # ebur128: per-frame true-peak metadata on stdout, summary (I / LRA) on stderr.
+    # ebur128 pass: integrated loudness / LRA / threshold (+ a 4x true-peak fallback).
     r = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
               "-af", "ebur128=peak=true:metadata=1,"
                      "ametadata=mode=print:key=lavfi.r128.true_peak:file=-",
               "-f", "null", "-"])
     peaks = [float(x) for x in re.findall(r"lavfi\.r128\.true_peak=([0-9.]+)", r.stdout)]
-    if peaks:
-        mx = max(peaks)
-        result["true_peak"] = (20.0 * math.log10(mx)) if mx > 0 else None
+    tp_fallback = (20.0 * math.log10(max(peaks))) if peaks and max(peaks) > 0 else None
     summary = r.stderr.rsplit("Summary:", 1)[-1]
     mi = re.search(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
     if mi:
@@ -560,6 +570,10 @@ def measure(ffmpeg, path):
     if mt:
         result["threshold"] = _to_float(mt.group(1))
 
+    # Native sample rate, for the high-oversampling true-peak pass below.
+    msr = re.search(r"(\d{4,6})\s*Hz", r.stderr)
+    native_rate = int(msr.group(1)) if msr else 48000
+
     # astats -> overall raw sample peak (the "digital" peak, dBFS).
     r2 = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
                "-af", "astats=measure_perchannel=none:measure_overall=Peak_level",
@@ -569,18 +583,41 @@ def measure(ffmpeg, path):
         val = sp.group(1)
         result["sample_peak"] = None if "inf" in val else float(val)
 
+    # True peak at TP_OVERSAMPLE x: upsample and take the sample peak of the
+    # reconstructed waveform — a direct, high-precision inter-sample peak, much
+    # tighter than BS.1770's minimum 4x (whose short filter mis-reads by up to
+    # ~0.5 dB either way).  Uses ffmpeg's built-in swr resampler at its default
+    # (transparent) settings — soxr isn't compiled into every ffmpeg, incl. the
+    # bundled one, and a too-aggressive cutoff would ring and over-read.
+    # osf=fltp is REQUIRED: without an explicit float output format, aresample
+    # clamps peaks above 0 dBFS to full scale — which is exactly the overshoot on
+    # a lossy-decoded stream we need to see.
+    r3 = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
+               "-af", f"aresample={native_rate * TP_OVERSAMPLE}:osf=fltp,"
+                      "astats=measure_perchannel=none:measure_overall=Peak_level",
+               "-f", "null", "-"])
+    tpm = re.search(r"Peak level dB:\s*(-?\d+(?:\.\d+)?|-?inf)", r3.stderr)
+    if tpm and "inf" not in tpm.group(1):
+        result["true_peak"] = float(tpm.group(1))
+    else:
+        result["true_peak"] = tp_fallback
+
     return result
 
 
-def transcode_measure(ffmpeg, src, codec, bitrate, ext, workdir, extra_args=None):
+def transcode_measure(ffmpeg, src, codec, bitrate, ext, workdir, extra_args=None,
+                      rate=DELIVERY_RATE_44K):
     """Encode `src` to codec/bitrate, then measure the decoded output.
 
     `extra_args` are extra ffmpeg encoder options (e.g. the AAC rate-control mode).
+    `rate` is the service's delivery sample rate: the source is resampled to it
+    (soxr) BEFORE encoding, matching what the service does to a hi-res upload.
     Returns the same dict shape as measure().  Raises FFmpegError on encode failure.
     """
     out = os.path.join(workdir, f"enc_{codec}_{bitrate}.{ext}")
-    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-           "-i", src, "-c:a", codec, "-b:a", bitrate]
+    cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+           "-af", f"aresample={rate}:osf=fltp",
+           "-c:a", codec, "-b:a", bitrate]
     if extra_args:
         cmd += list(extra_args)
     cmd.append(out)
@@ -628,15 +665,20 @@ def resolve_aac_encoder(encoders):
     return "ffmpeg", "aac", "ffmpeg AAC (proxy)"
 
 
-def transcode_measure_afconvert(ffmpeg, src, bitrate, workdir):
-    """Encode with macOS afconvert (real Apple AAC), then measure the decode."""
+def transcode_measure_afconvert(ffmpeg, src, bitrate, workdir, rate=DELIVERY_RATE_44K):
+    """Encode with macOS afconvert (real Apple AAC), then measure the decode.
+
+    `rate` is the service delivery rate; the pre-decode wav is resampled to it
+    (soxr) so afconvert encodes at the same rate the service would."""
     afc = _afconvert_path()
     if not afc:
         raise FFmpegError("afconvert not available")
-    # afconvert wants an uncompressed input; normalize to a temp wav first.
+    # afconvert wants an uncompressed input; normalize to a temp wav at the
+    # delivery sample rate first (soxr).
     wav = os.path.join(workdir, "afc_in.wav")
-    dec = _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                "-i", src, "-c:a", "pcm_s24le", wav])
+    dec = _run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+                "-af", f"aresample={rate}",
+                "-c:a", "pcm_s24le", wav])
     if dec.returncode != 0 or not os.path.exists(wav):
         raise FFmpegError(f"afconvert pre-decode failed: {dec.stderr.strip()[:200]}")
     out = os.path.join(workdir, f"enc_apple_{bitrate}.m4a")
@@ -684,13 +726,14 @@ def _run_transcode(ffmpeg, path, tkey, enc_set, strict, workdir):
 
     try:
         if kind == "afconvert":
-            m = transcode_measure_afconvert(ffmpeg, path, ts.bitrate, workdir)
+            m = transcode_measure_afconvert(ffmpeg, path, ts.bitrate, workdir, rate=ts.rate)
         else:
             # Apple's AAC (aac_at): use constrained VBR — real-world AAC (Logic,
             # Apple Music) is VBR-family, which peaks ~0.7 dB lower than the CBR
             # ffmpeg picks by default, while still respecting the bitrate tier.
             extra = ["-aac_at_mode", "cvbr"] if codec == "aac_at" else None
-            m = transcode_measure(ffmpeg, path, codec, ts.bitrate, ts.ext, workdir, extra_args=extra)
+            m = transcode_measure(ffmpeg, path, codec, ts.bitrate, ts.ext, workdir,
+                                  extra_args=extra, rate=ts.rate)
         entry["decoded_tp"] = m["true_peak"]
         entry["decoded_sample_peak"] = m["sample_peak"]
         entry["decoded_lufs"] = m["integrated_lufs"]
@@ -1641,17 +1684,30 @@ class App:
         widget.bind("<Leave>", hide, add="+")
         widget.bind("<Destroy>", hide, add="+")
 
+    def _drag_divider(self, event):
+        """Resize the left rail by dragging the divider; the right panel takes the
+        rest.  Clamped so neither side collapses."""
+        total = self.main.winfo_width()
+        new_w = event.x_root - self.main.winfo_rootx()
+        new_w = max(360, min(new_w, total - 520))
+        self.railwrap.config(width=new_w)
+
     # ------------------------------------------------------------------- layout
     def _build_ui(self):
         self.root.configure(bg=DESK)
-        main = tk.Frame(self.root, bg=BG)
+        self.main = main = tk.Frame(self.root, bg=BG)
         main.pack(fill="both", expand=True)
 
         # =========================== LEFT RAIL ===============================
-        railwrap = tk.Frame(main, bg=RAIL, width=452)
+        self.railwrap = railwrap = tk.Frame(main, bg=RAIL, width=452)
         railwrap.pack(side="left", fill="y")
-        railwrap.pack_propagate(False)
-        tk.Frame(main, bg=BORDER2, width=1).pack(side="left", fill="y")   # rail edge
+        railwrap.pack_propagate(False)   # width is controlled by us / the drag divider
+        # Draggable divider — lets the user resize the left column (drag left/right).
+        self.divider = tk.Frame(main, bg=BORDER2, width=5, cursor="sb_h_double_arrow")
+        self.divider.pack(side="left", fill="y")
+        self.divider.bind("<Enter>", lambda e: self.divider.config(bg="#3b3f47"))
+        self.divider.bind("<Leave>", lambda e: self.divider.config(bg=BORDER2))
+        self.divider.bind("<B1-Motion>", self._drag_divider)
         left = tk.Frame(railwrap, bg=RAIL)
         left.pack(fill="both", expand=True, padx=24, pady=22)
 
@@ -2091,13 +2147,18 @@ class App:
         worst_os = worst_os_tier = None     # largest overshoot across all tiers (info)
         for s in r["services"]:
             for t in s["tiers"]:
+                primary = t.get("primary", True)
                 labels.add(t["label"])
-                if t.get("primary", True) and t["verdict"] == WARN:
+                if primary and t["verdict"] == WARN:
                     warnings += 1
-                if t.get("primary", True) and t["playback_tp"] is not None:
+                if primary and t["playback_tp"] is not None:
                     head = -t["playback_tp"]
                     if tightest is None or head < tightest:
                         tightest, tightest_svc = head, s["name"]
+                # Worst overshoot tracks what's VISIBLE: skip data-saver tiers when
+                # they're hidden, so the tile matches the breakdown on screen.
+                if self.hide_datasaver and not primary:
+                    continue
                 if t["overshoot"] is not None and (worst_os is None or t["overshoot"] > worst_os):
                     worst_os, worst_os_tier = t["overshoot"], t["label"]
         return dict(services=len(r["services"]), formats=len(labels), warnings=warnings,
@@ -2156,6 +2217,7 @@ class App:
         self.ds_toggle.set_text(
             "Show data-saver tiers" if self.hide_datasaver else "Hide data-saver tiers")
         if self.sel_index is not None and 0 <= self.sel_index < len(self.results):
+            self._render_tiles(self.results[self.sel_index])   # Worst OS follows the toggle
             self._render_breakdown(self.results[self.sel_index])
 
     def _service_group(self, parent, s):

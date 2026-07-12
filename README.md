@@ -64,11 +64,14 @@ then reused across every service that serves it.
 
 ## What it measures (and the spec it references)
 
-Loudness and true peak follow **ITU-R BS.1770-4**. True peak is read from ffmpeg's
-reference `ebur128` meter (4×-oversampled, full precision from its per-frame
-metadata); lossy streams are decoded in 32-bit float so overshoot above 0 dBFS is
-captured, not clipped. For every codec tier the app reports **both** peaks the
-standard distinguishes:
+Loudness follows **ITU-R BS.1770-4** (ffmpeg's `ebur128`). True peak is measured at
+**16× oversampling** — the signal is reconstructed 16× above its rate and the peak
+of that waveform is taken. BS.1770 only mandates a *minimum* 4×, whose short filter
+mis-reads inter-sample peaks by up to ~0.5 dB (in *either* direction); 16× is
+meter-grade, matching pro tools like iZotope Insight / Sonnox ListenHub. Lossy
+streams are decoded in 32-bit float so overshoot above 0 dBFS is captured, not
+clipped. For every codec tier the app reports **both** peaks the standard
+distinguishes:
 
 - **Sample peak (dBFS)** — the raw *digital* peak; above 0 dBFS means the decoded
   stream clips in the playback engine.
@@ -244,7 +247,7 @@ master?" question, measured rather than guessed.
 
 | Claim | Confidence |
 |---|---|
-| Loudness & true peak | 🟢 High — ITU-R BS.1770-4 via ffmpeg's `ebur128` (float decode, 4× oversampled) |
+| Loudness & true peak | 🟢 High — BS.1770-4 loudness (`ebur128`); true peak at 16× oversampling (float decode) |
 | Overshoot direction & clipping flags | 🟢 High — a real encode→decode round-trip |
 | Relative comparisons (codec vs codec, master vs master, lossless = clean) | 🟢 High |
 | **AAC & MP3 on macOS** | 🟢 High — real encoders, validated within 0.2 dB vs iZotope Insight |
@@ -258,15 +261,20 @@ true-peak headroom to survive lossy streaming, and which services/codecs are the
 riskiest." It is a faithful, conservative **simulation**, not a bit-exact
 prediction of any one service's encoder.
 
-**On comparing to other tools:** two correct true-peak meters routinely disagree by
-**~0.2–0.4 dB** — BS.1770 only mandates a *minimum* 4× oversampling, and meters
-(ffmpeg, iZotope Insight, Sonnox ListenHub…) use anywhere from 4× to 16×. A
-sub-0.5 dB gap between this tool and your meter is agreement, not error. Also
-**measure the encoded file directly** in a file-based meter — importing into a DAW
-resamples it to the project sample rate (a real artifact), and measuring real-time
-playback adds the system audio path. The tool does **not** model service-side
-pre-processing or resample to each service's delivery rate (a ~0.1 dB effect), and
-it's never a substitute for critical listening.
+**On comparing to other tools:** true-peak meters can disagree by a couple tenths of
+a dB depending on their oversampling and filters. This tool uses **16×**, which
+lands very close to iZotope Insight / Sonnox ListenHub; a sub-0.3 dB gap is
+agreement, not error. Also **measure the encoded file directly** in a file-based
+meter — importing into a DAW resamples it to the project sample rate (a real
+artifact), and measuring real-time playback adds the system audio path.
+
+**Sample rate:** the services deliver their lossy tiers at a fixed rate (44.1 kHz
+for Vorbis/AAC/MP3, 48 kHz for Opus), so a hi-res upload is resampled to that rate
+**before** their encode. The tool now does the same — it resamples a non-matching
+source to the delivery rate before each lossy round-trip, so a 48 kHz master and its
+44.1 kHz bounce give the same result the service would. Lossless tiers keep the
+source rate (services preserve hi-res lossless). It's never a substitute for
+critical listening.
 
 This same reliability sheet is printed at the top of every HTML report and
 summarised in the command-line output, so anyone reading a result knows exactly
@@ -277,9 +285,9 @@ how much to trust it.
 ## Free tools it builds on
 
 - **ffmpeg** — `libvorbis`, native `aac`, `libopus`, `libmp3lame` encoders for the
-  real round-trips (plus Apple's `aac_at` / AudioToolbox on macOS); `loudnorm`
-  (ITU-R BS.1770 integrated loudness + 4× oversampled true peak) and `astats`
-  (sample peak) for measurement.
+  real round-trips (plus Apple's `aac_at` / AudioToolbox on macOS); `ebur128`
+  (ITU-R BS.1770 integrated loudness), `aresample` (16× oversampling for true peak,
+  and the delivery-rate resample) and `astats` (sample / true peak) for measurement.
 - **macOS AudioToolbox / `afconvert`** — Apple's real CoreAudio AAC encoder
   (`aac_at`, constrained-VBR) for **all** AAC tiers, on macOS.
 - **Python standard library** (incl. `tkinter`) for the app and report.
