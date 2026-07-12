@@ -36,16 +36,17 @@ Loudness targets are publicly-reported, approximate, and change over time:
 ### Primary vs. data-saver tiers
 
 The verdict and the mastering recommendation are judged only on the **primary
-streaming tiers** — the quality most listeners actually get:
+streaming tiers** — the top quality a release actually targets:
 
-> **Ogg Vorbis 320 & 160** (Spotify) · **AAC 256** (Apple / Amazon / Tidal) ·
-> **Opus 160** (YouTube) · **MP3 320** (Deezer) · lossless FLAC/ALAC
+> **Ogg Vorbis 320** (Spotify Very High) · **AAC 256** (Apple / Amazon / Tidal /
+> YouTube High) · **MP3 320** (Deezer) · lossless FLAC / ALAC
 
-Low-bitrate **data-saver / fallback** tiers (Ogg 96, AAC 128, Opus 64/128, MP3 128)
-are still analyzed and shown, but tagged `data-saver` and treated as an
-**informational, non-blocking notice** — a −0.5 dBTP master shouldn't be graded on what
-a 64 kbps data-saver stream does. Those tiers overshoot by nature, and loudness
-normalization removes it at playback anyway.
+All lower tiers — including the **160k** tiers (Spotify High, YouTube standard Opus)
+and the low-bitrate data-saver/fallback streams (Ogg 96, AAC 128, Opus 64/128,
+MP3 128) — are still analyzed and shown, but tagged `data-saver` and treated as an
+**informational, non-blocking notice**. Those tiers overshoot by nature, and loudness
+normalization removes it at playback anyway — a −0.5 dBTP master shouldn't be graded
+on what a data-saver stream does.
 
 Each unique codec/bitrate is transcoded **once** per file (all tiers run
 **concurrently across your CPU cores** — a full track analyzes in a few seconds),

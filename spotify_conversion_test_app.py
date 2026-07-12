@@ -66,7 +66,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 import argparse
 import datetime
@@ -206,15 +206,15 @@ class TranscodeSpec:
 # The union of lossy codec tiers used by any service.  Each is transcoded ONCE
 # per file; services then reference these results by key.
 TRANSCODES = [
-    # Primary tiers = the main streaming quality most listeners get.
-    TranscodeSpec("vorbis_160", "Ogg Vorbis 160k", "libvorbis",   "160k", "ogg",  primary=True),   # Spotify High (default)
+    # Primary tiers = the top streaming quality (what a quality-conscious release targets).
     TranscodeSpec("vorbis_320", "Ogg Vorbis 320k", "libvorbis",   "320k", "ogg",  primary=True),   # Spotify Very High
-    TranscodeSpec("aac_256",    "AAC 256k",        "aac",         "256k", "m4a",  primary=True),   # Apple / Amazon / Tidal / premium
-    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus", primary=True),   # YouTube standard
+    TranscodeSpec("aac_256",    "AAC 256k",        "aac",         "256k", "m4a",  primary=True),   # Apple / Amazon / Tidal / YouTube High
     TranscodeSpec("mp3_320",    "MP3 320k",        "libmp3lame",  "320k", "mp3",  primary=True),   # Deezer High
-    # Informational tiers = low-bitrate / data-saver / fallback (non-blocking).
+    # Informational tiers = mid/low-bitrate, data-saver, fallback (non-blocking).
+    TranscodeSpec("vorbis_160", "Ogg Vorbis 160k", "libvorbis",   "160k", "ogg",  primary=False),  # Spotify High/default
     TranscodeSpec("vorbis_96",  "Ogg Vorbis 96k",  "libvorbis",   "96k",  "ogg",  primary=False),  # Spotify Low
     TranscodeSpec("aac_128",    "AAC 128k",        "aac",         "128k", "m4a",  primary=False),  # free web
+    TranscodeSpec("opus_160",   "Opus 160k",       "libopus",     "160k", "opus", primary=False),  # YouTube standard
     TranscodeSpec("opus_128",   "Opus 128k",       "libopus",     "128k", "opus", primary=False),  # below standard
     TranscodeSpec("opus_64",    "Opus 64k",        "libopus",     "64k",  "opus", primary=False),  # data-saver
     TranscodeSpec("mp3_128",    "MP3 128k",        "libmp3lame",  "128k", "mp3",  primary=False),  # fallback
@@ -261,8 +261,9 @@ SERVICES = [
         ("alac",    "Lossless / Hi-Res Lossless (ALAC)"),
     ]),
     Service("youtube", "YouTube Music", -14.0, -1.0, -1.0, [
+        ("aac_256",  "High / Premium (256 AAC)"),
+        ("opus_160", "Opus (standard)"),
         ("opus_128", "Opus (typical)"),
-        ("opus_160", "Opus (high)"),
         ("aac_128",  "AAC (fallback)"),
     ]),
     Service("amazon", "Amazon Music", -14.0, -1.0, -1.0, [
@@ -877,8 +878,8 @@ def build_advice(result):
 
     headroom = f", {abs(worst_dec):.2f} dB of headroom to spare" if worst_dec is not None else ""
     return ("safe",
-            f"Safe — the primary streaming tiers (Ogg Vorbis 320/160, AAC 256, Opus 160, MP3 320) "
-            f"all stay under 0 dBFS{headroom}. This master survives conversion intact even at "
+            f"Safe — the primary streaming tiers (Ogg Vorbis 320, AAC 256, MP3 320, lossless) all "
+            f"stay under 0 dBFS{headroom}. This master survives conversion intact even at "
             f"{tp:+.2f} dBTP; no re-export required, and no need to pull it down to −1 dBTP.{notice}")
 
 
@@ -1147,8 +1148,8 @@ def build_report(results, out_path, ffmpeg_version="", title="Streaming Conversi
 {RELIABILITY_BOX}
 <main>{sections}</main>
 <footer>
-  <b>The verdict is judged on the PRIMARY streaming tiers</b> (Ogg Vorbis 320/160,
-  AAC 256, Opus 160, MP3 320 — the quality most listeners get) at PLAYBACK, with each
+  <b>The verdict is judged on the PRIMARY streaming tiers</b> (Ogg Vorbis 320,
+  AAC 256, MP3 320, lossless — the top streaming quality) at PLAYBACK, with each
   service's loudness normalization on. Tiers tagged
   <span class="tag ds">data-saver</span> are low-bitrate fallbacks shown for information
   only; they never affect the verdict. "Sample pk" is the raw digital peak (dBFS);
