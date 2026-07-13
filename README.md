@@ -64,14 +64,12 @@ then reused across every service that serves it.
 
 ## What it measures (and the spec it references)
 
-Loudness follows **ITU-R BS.1770-4** (ffmpeg's `ebur128`). True peak is measured at
-**16× oversampling** — the signal is reconstructed 16× above its rate and the peak
-of that waveform is taken. BS.1770 only mandates a *minimum* 4×, whose short filter
-mis-reads inter-sample peaks by up to ~0.5 dB (in *either* direction); 16× is
-meter-grade, matching pro tools like iZotope Insight / Sonnox ListenHub. Lossy
-streams are decoded in 32-bit float so overshoot above 0 dBFS is captured, not
-clipped. For every codec tier the app reports **both** peaks the standard
-distinguishes:
+Loudness and true peak follow **ITU-R BS.1770-4**, via ffmpeg's reference `ebur128`
+meter — the same true-peak standard iZotope Insight, Sonnox ListenHub and MAAT
+implement (each with its own compliant filter, so readings across tools sit within
+~0.1–0.3 dB of each other — that's normal, not error). Lossy streams are decoded in
+32-bit float so overshoot above 0 dBFS is captured, not clipped. For every codec
+tier the app reports **both** peaks the standard distinguishes:
 
 - **Sample peak (dBFS)** — the raw *digital* peak; above 0 dBFS means the decoded
   stream clips in the playback engine.
@@ -247,7 +245,7 @@ master?" question, measured rather than guessed.
 
 | Claim | Confidence |
 |---|---|
-| Loudness & true peak | 🟢 High — BS.1770-4 loudness (`ebur128`); true peak at 16× oversampling (float decode) |
+| Loudness & true peak | 🟢 High — ITU-R BS.1770-4 via ffmpeg's `ebur128` (float decode, 4× oversampled true peak) |
 | Overshoot direction & clipping flags | 🟢 High — a real encode→decode round-trip |
 | Relative comparisons (codec vs codec, master vs master, lossless = clean) | 🟢 High |
 | **AAC & MP3 on macOS** | 🟢 High — real encoders, validated within 0.2 dB vs iZotope Insight |
@@ -261,12 +259,14 @@ true-peak headroom to survive lossy streaming, and which services/codecs are the
 riskiest." It is a faithful, conservative **simulation**, not a bit-exact
 prediction of any one service's encoder.
 
-**On comparing to other tools:** true-peak meters can disagree by a couple tenths of
-a dB depending on their oversampling and filters. This tool uses **16×**, which
-lands very close to iZotope Insight / Sonnox ListenHub; a sub-0.3 dB gap is
-agreement, not error. Also **measure the encoded file directly** in a file-based
-meter — importing into a DAW resamples it to the project sample rate (a real
-artifact), and measuring real-time playback adds the system audio path.
+**On comparing to other tools:** every true-peak meter implements the BS.1770 filter
+its own way, so two *correct* meters (this tool, MAAT, Insight, ListenHub) routinely
+disagree by **~0.1–0.3 dB** — that's the resolution floor of true-peak metering, not
+an error in either. There is no single "true" value below that; the spec bounds the
+error, it doesn't define one number. A sub-0.3 dB gap to your meter is agreement.
+Also **measure the encoded file directly** in a file-based meter — importing into a
+DAW resamples it to the project sample rate (a real artifact), and measuring
+real-time playback adds the system audio path.
 
 **Sample rate:** the services deliver their lossy tiers at a fixed rate (44.1 kHz
 for Vorbis/AAC/MP3, 48 kHz for Opus), so a hi-res upload is resampled to that rate
@@ -286,8 +286,8 @@ how much to trust it.
 
 - **ffmpeg** — `libvorbis`, native `aac`, `libopus`, `libmp3lame` encoders for the
   real round-trips (plus Apple's `aac_at` / AudioToolbox on macOS); `ebur128`
-  (ITU-R BS.1770 integrated loudness), `aresample` (16× oversampling for true peak,
-  and the delivery-rate resample) and `astats` (sample / true peak) for measurement.
+  (ITU-R BS.1770 integrated loudness + 4× true peak), `aresample` (the delivery-rate
+  resample before each lossy encode) and `astats` (sample peak) for measurement.
 - **macOS AudioToolbox / `afconvert`** — Apple's real CoreAudio AAC encoder
   (`aac_at`, constrained-VBR) for **all** AAC tiers, on macOS.
 - **Python standard library** (incl. `tkinter`) for the app and report.

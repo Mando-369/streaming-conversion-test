@@ -66,7 +66,7 @@ Important accuracy notes
     never altered.  The "plays at" figure is what listeners hear.
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 import argparse
 import datetime
@@ -175,10 +175,8 @@ TP_CEILING_NORMAL = -1.0   # dBTP ceiling recommended for lossy delivery
 TP_CEILING_HOT = -2.0      # dBTP ceiling if master is louder than target (Spotify)
 CLIP_CEILING = 0.0         # dBFS: a decoded peak above this is hard clipping
 
-# True-peak oversampling.  BS.1770-4 mandates only 4x, which under-reads
-# near-Nyquist inter-sample peaks by up to ~0.5 dB; we upsample this much with a
-# high-precision (soxr) filter and take the reconstructed sample peak — meter-grade.
-TP_OVERSAMPLE = 16
+# Service delivery sample rates: a hi-res source is resampled to these BEFORE the
+# lossy encode, matching what the services do to an upload.
 DELIVERY_RATE_44K = 44100  # services deliver Vorbis/AAC/MP3 at 44.1 kHz
 DELIVERY_RATE_48K = 48000  # Opus is always 48 kHz internally (YouTube)
 
@@ -552,13 +550,21 @@ def measure(ffmpeg, path):
         "sample_peak": None,
     }
 
-    # ebur128 pass: integrated loudness / LRA / threshold (+ a 4x true-peak fallback).
+    # True peak + loudness from ffmpeg's `ebur128` — the reference BS.1770-4
+    # true-peak meter (the same standard MAAT / iZotope Insight implement).  Read
+    # from the per-frame metadata for full precision, not the 0.1 dB summary.
+    # (ffmpeg's ebur128 is fixed at the spec's 4x oversampling; you cannot raise
+    # it — pre-upsampling the input leaves its true-peak output unchanged.  A
+    # resampler-as-meter can oversample more but is a non-standard filter, so we
+    # stay on the real BS.1770 filter here.)
     r = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
               "-af", "ebur128=peak=true:metadata=1,"
                      "ametadata=mode=print:key=lavfi.r128.true_peak:file=-",
               "-f", "null", "-"])
     peaks = [float(x) for x in re.findall(r"lavfi\.r128\.true_peak=([0-9.]+)", r.stdout)]
-    tp_fallback = (20.0 * math.log10(max(peaks))) if peaks and max(peaks) > 0 else None
+    if peaks:
+        mx = max(peaks)
+        result["true_peak"] = (20.0 * math.log10(mx)) if mx > 0 else None
     summary = r.stderr.rsplit("Summary:", 1)[-1]
     mi = re.search(r"\bI:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary)
     if mi:
@@ -570,10 +576,6 @@ def measure(ffmpeg, path):
     if mt:
         result["threshold"] = _to_float(mt.group(1))
 
-    # Native sample rate, for the high-oversampling true-peak pass below.
-    msr = re.search(r"(\d{4,6})\s*Hz", r.stderr)
-    native_rate = int(msr.group(1)) if msr else 48000
-
     # astats -> overall raw sample peak (the "digital" peak, dBFS).
     r2 = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
                "-af", "astats=measure_perchannel=none:measure_overall=Peak_level",
@@ -582,25 +584,6 @@ def measure(ffmpeg, path):
     if sp:
         val = sp.group(1)
         result["sample_peak"] = None if "inf" in val else float(val)
-
-    # True peak at TP_OVERSAMPLE x: upsample and take the sample peak of the
-    # reconstructed waveform — a direct, high-precision inter-sample peak, much
-    # tighter than BS.1770's minimum 4x (whose short filter mis-reads by up to
-    # ~0.5 dB either way).  Uses ffmpeg's built-in swr resampler at its default
-    # (transparent) settings — soxr isn't compiled into every ffmpeg, incl. the
-    # bundled one, and a too-aggressive cutoff would ring and over-read.
-    # osf=fltp is REQUIRED: without an explicit float output format, aresample
-    # clamps peaks above 0 dBFS to full scale — which is exactly the overshoot on
-    # a lossy-decoded stream we need to see.
-    r3 = _run([ffmpeg, "-hide_banner", "-nostats", "-i", path,
-               "-af", f"aresample={native_rate * TP_OVERSAMPLE}:osf=fltp,"
-                      "astats=measure_perchannel=none:measure_overall=Peak_level",
-               "-f", "null", "-"])
-    tpm = re.search(r"Peak level dB:\s*(-?\d+(?:\.\d+)?|-?inf)", r3.stderr)
-    if tpm and "inf" not in tpm.group(1):
-        result["true_peak"] = float(tpm.group(1))
-    else:
-        result["true_peak"] = tp_fallback
 
     return result
 
